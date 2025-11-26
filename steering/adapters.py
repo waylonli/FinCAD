@@ -69,7 +69,7 @@ class TransformersAdapter(BaseLMAdapter):
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             config.model_name,
-            torch_dtype=dtype,
+            dtype=dtype,
             device_map="auto" if config.device == "cuda" else None,
             cache_dir=config.cache_dir,
         )
@@ -115,6 +115,8 @@ class TransformersAdapter(BaseLMAdapter):
             conversations,
             tokenize=True,
             add_generation_prompt=True,
+            padding=True,
+            truncation=True,
             return_tensors="pt",
             return_dict=True,
         )

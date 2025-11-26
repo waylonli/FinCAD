@@ -9,4 +9,5 @@ uv run --active --no-sync python benchmark/gsm8k/eval.py \
   --model-cache-dir ../pretrained_models \
   --dataset-cache-dir ./datasets \
   --max-new-tokens 512 \
-  --batch-size 16
+  --batch-size 16 \
+  --temperature 0.0

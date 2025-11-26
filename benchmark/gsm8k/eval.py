@@ -164,7 +164,7 @@ def main():
     )
     acc = correct / total if total else 0.0
     label = "Steered" if args.steer_strength != 0.0 else "Baseline"
-    print(f"\n{label} accuracy on GSM8K: {correct}/{total} = {acc:.2%}")
+    print(f"\n{label} accuracy on GSM8K: {correct}/{total} = {acc:.2%} ({correct} out of {total})")
 
 
 if __name__ == "__main__":
