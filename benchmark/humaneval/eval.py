@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import traceback
 from itertools import islice
@@ -30,6 +31,23 @@ from steering import (
 def format_prompt(problem: str) -> str:
     # HumanEval prompt already contains signature and docstring; just forward it.
     return problem + "\n"
+
+
+def sanitize_generation(generation: str) -> str:
+    """
+    Extract a plausible code block from a free-form LLM generation.
+    Priority:
+    1) First fenced ```python ... ``` block (or ``` ... ```).
+    2) Else take from first 'def ' onward.
+    3) Fallback to raw text.
+    """
+    fences = re.findall(r"```(?:python)?\n(.*?)```", generation, flags=re.DOTALL | re.IGNORECASE)
+    if fences:
+        candidate = fences[0]
+    else:
+        idx = generation.find("def ")
+        candidate = generation[idx:] if idx != -1 else generation
+    return candidate.strip()
 
 
 def run_candidate(code: str, test_code: str, entry_point: str) -> bool:
@@ -80,7 +98,7 @@ def evaluate_split(
             if isinstance(generations, str):
                 generations = [generations]
             for gen, test_code, entry, sid, prompt in zip(generations, batch_tests, batch_entries, ids, batch_prompts):
-                candidate_code = gen.strip()
+                candidate_code = sanitize_generation(gen)
                 ok = run_candidate(candidate_code, test_code, entry)
                 total += 1
                 if ok:
@@ -90,6 +108,7 @@ def evaluate_split(
                         "id": sid,
                         "prompt": prompt,
                         "generation": candidate_code,
+                        "raw_generation": gen,
                         "correct": ok,
                         "steer_strength": strength,
                     }
@@ -109,7 +128,7 @@ def evaluate_split(
         if isinstance(generations, str):
             generations = [generations]
         for gen, test_code, entry, sid, prompt in zip(generations, batch_tests, batch_entries, ids, batch_prompts):
-            candidate_code = gen.strip()
+            candidate_code = sanitize_generation(gen)
             ok = run_candidate(candidate_code, test_code, entry)
             total += 1
             if ok:
@@ -119,6 +138,7 @@ def evaluate_split(
                     "id": sid,
                     "prompt": prompt,
                     "generation": candidate_code,
+                    "raw_generation": gen,
                     "correct": ok,
                     "steer_strength": strength,
                 }

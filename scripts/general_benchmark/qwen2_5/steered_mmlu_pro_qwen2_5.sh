@@ -10,7 +10,9 @@ uv run --active --no-sync python benchmark/mmlu_pro/eval.py \
   --dataset-cache-dir ./datasets \
   --max-new-tokens 2048 \
   --batch-size 16 \
-  --steer-strength -10.0 \
+  --steer-strength -5.0 \
   --temperature 0.0 \
   --split validation \
   --results-file logs/results/steered_mmlu_pro_qwen2_5_run.jsonl |& tee logs/steered_mmlu_pro_qwen2_5_run.log
+
+# TODO Now it is set to validation, change to test for final evaluation

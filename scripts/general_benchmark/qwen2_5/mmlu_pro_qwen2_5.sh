@@ -11,4 +11,7 @@ uv run --active --no-sync python benchmark/mmlu_pro/eval.py \
   --max-new-tokens 2048 \
   --batch-size 16 \
   --temperature 0.0 \
+  --split validation \
   --results-file logs/results/mmlu_pro_qwen2_5_run.jsonl |& tee logs/mmlu_pro_qwen2_5_run.log
+
+# TODO Now it is set to validation, change to test for final evaluation
