@@ -106,19 +106,23 @@ class TransformersAdapter(BaseLMAdapter):
     def supports_hooks(self) -> bool:
         return True
 
-    def _apply_chat_template(self, prompt: str) -> Dict[str, torch.Tensor]:
-        messages = [{"role": "user", "content": prompt}]
+    def _apply_chat_template(self, prompt) -> Dict[str, torch.Tensor]:
+        if isinstance(prompt, str):
+            conversations = [[{"role": "user", "content": prompt}]]
+        else:
+            conversations = [[{"role": "user", "content": p}] for p in prompt]
         return self._tokenizer.apply_chat_template(
-            messages,
+            conversations,
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
             return_dict=True,
         )
 
-    def tokenize(self, prompt: str) -> Dict[str, torch.Tensor]:
+    def tokenize(self, prompt) -> Dict[str, torch.Tensor]:
+        """Prompt can be a string or list of strings."""
         if self.config.use_chat_template:
-            encoded = self._apply_chat_template(prompt)
+            encoded = self._apply_chat_template(prompt if isinstance(prompt, str) else list(prompt))
         else:
             encoded = self._tokenizer(prompt, return_tensors="pt", padding=True)
         return {k: v.to(self.device) for k, v in encoded.items()}
@@ -130,7 +134,8 @@ class TransformersAdapter(BaseLMAdapter):
     def generate(self, inputs: Dict[str, torch.Tensor], **kwargs) -> torch.Tensor:
         gen_kwargs = dict(
             max_new_tokens=kwargs.pop("max_new_tokens", 256),
-            do_sample=False,
+            do_sample=kwargs.pop("do_sample", False),
+            temperature=kwargs.pop("temperature", 0.0),
             pad_token_id=self.eos_token_id,
             repetition_penalty=kwargs.pop("repetition_penalty", 1.1),
         )

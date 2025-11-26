@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -151,22 +151,46 @@ class SteeringController:
 
         return self.steering_vectors
 
+    # --- Persistence ---------------------------------------------------------
+    def save_vectors(self, path: str) -> None:
+        """
+        Save layer_ids and steering_vectors to a file.
+        """
+        payload = {
+            "layer_ids": self.layer_ids,
+            "vectors": {str(k): v.cpu() for k, v in self.steering_vectors.items()},
+        }
+        torch.save(payload, path)
+
+    def load_vectors(self, path: str) -> None:
+        """
+        Load layer_ids and steering_vectors from a file.
+        """
+        payload = torch.load(path, map_location=self.adapter.device)
+        self.layer_ids = [int(x) for x in payload.get("layer_ids", [])]
+        vectors = payload.get("vectors", {})
+        self.steering_vectors = {int(k): v.to(self.adapter.device) for k, v in vectors.items()}
+
     # --- Inference with steering ---------------------------------------------
     def generate(
         self,
-        prompt: str,
+        prompt: Union[str, List[str]],
         strength: float = 0.0,
         max_new_tokens: int = 256,
         repetition_penalty: float = 1.1,
-    ) -> str:
+        temperature: float = 0.0,
+    ) -> Union[str, List[str]]:
         """
         Generate text with optional steering applied uniformly across stored vectors.
+        Supports single prompt (str) or batched prompts (List[str]).
         """
         if strength != 0.0 and not self.adapter.supports_hooks:
             raise NotImplementedError("The current adapter does not expose layer hooks for steering.")
 
         self.last_similarities = {}
-        inputs = self.adapter.tokenize(prompt)
+        prompts = [prompt] if isinstance(prompt, str) else list(prompt)
+        inputs = self.adapter.tokenize(prompts)  # type: ignore[arg-type]
+        input_lengths = compute_input_lengths(inputs)
 
         # Baseline
         if strength == 0.0 or not self.steering_vectors:
@@ -174,8 +198,10 @@ class SteeringController:
                 inputs,
                 max_new_tokens=max_new_tokens,
                 repetition_penalty=repetition_penalty,
+                temperature=temperature,
+                do_sample=temperature > 0,
             )
-            return decode_outputs(self.adapter, outputs, inputs)
+            return decode_outputs(self.adapter, outputs, inputs, input_lengths, single=isinstance(prompt, str))
 
         handles = []
 
@@ -186,10 +212,12 @@ class SteeringController:
                 perturbed = hidden + perturb
 
                 if layer_id not in self.last_similarities:
-                    original_vec = hidden[0, -1, :].detach().to(torch.float32)
-                    perturbed_vec = perturbed[0, -1, :].detach().to(torch.float32)
-                    sim = torch.nn.functional.cosine_similarity(original_vec, perturbed_vec, dim=0).item()
-                    self.last_similarities[layer_id] = sim
+                    original_vec = hidden[:, -1, :].detach().to(torch.float32)
+                    perturbed_vec = perturbed[:, -1, :].detach().to(torch.float32)
+                    sims = torch.nn.functional.cosine_similarity(
+                        original_vec, perturbed_vec, dim=1
+                    ).mean().item()
+                    self.last_similarities[layer_id] = sims
 
                 if isinstance(output, tuple):
                     return (perturbed,) + output[1:]
@@ -210,12 +238,14 @@ class SteeringController:
                 inputs,
                 max_new_tokens=max_new_tokens,
                 repetition_penalty=repetition_penalty,
+                temperature=temperature,
+                do_sample=temperature > 0,
             )
         finally:
             for handle in handles:
                 handle.remove()
 
-        return decode_outputs(self.adapter, outputs, inputs)
+        return decode_outputs(self.adapter, outputs, inputs, input_lengths, single=isinstance(prompt, str))
 
 
 def hidden_dtype(module: torch.nn.Module) -> torch.dtype:
@@ -232,14 +262,33 @@ def module_device(module: torch.nn.Module) -> torch.device:
     return torch.device("cpu")
 
 
-def decode_outputs(adapter: BaseLMAdapter, outputs, inputs: Dict[str, torch.Tensor]) -> str:
+def decode_outputs(
+    adapter: BaseLMAdapter,
+    outputs,
+    inputs: Dict[str, torch.Tensor],
+    input_lengths: List[int],
+    single: bool = True,
+) -> Union[str, List[str]]:
     """
     Unify decoding across adapters.
-    - Transformers: decode token ids, dropping the prompt tokens.
+    - Transformers: decode token ids per sample, dropping prompt tokens.
     - vLLM (text list): return the generated text directly.
     """
     if isinstance(outputs, (list, tuple)) and outputs and isinstance(outputs[0], str):
-        return outputs[0]
+        return outputs[0] if single else list(outputs)
 
-    input_len = inputs["input_ids"].shape[1]
-    return adapter.tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)  # type: ignore
+    decoded = []
+    for i, input_len in enumerate(input_lengths):
+        decoded.append(
+            adapter.tokenizer.decode(outputs[i][input_len:], skip_special_tokens=True)  # type: ignore
+        )
+    return decoded[0] if single else decoded
+
+
+def compute_input_lengths(inputs: Dict[str, torch.Tensor]) -> List[int]:
+    """Compute per-sample input lengths for decoding offsets."""
+    if "attention_mask" in inputs:
+        mask = inputs["attention_mask"]
+        return mask.sum(dim=1).tolist()
+    input_ids = inputs["input_ids"]
+    return [input_ids.shape[1]] * input_ids.shape[0]

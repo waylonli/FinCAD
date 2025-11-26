@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
 from datasets import load_dataset
+from tqdm import tqdm
 
 from steering import (
     AdapterInitConfig,
@@ -49,25 +50,53 @@ def evaluate_split(
     samples: Iterable[dict],
     strength: float,
     max_new_tokens: int,
+    temperature: float,
+    batch_size: int,
+    total_samples: int,
 ) -> Tuple[int, int]:
     correct = 0
     total = 0
+    batch_prompts = []
+    golds = []
 
-    for idx, sample in enumerate(samples):
+    for sample in tqdm(samples, total=total_samples, desc="Evaluating"):
         question = sample["question"]
         gold_raw = sample["answer"]
-        gold = extract_number(gold_raw)
+        golds.append(extract_number(gold_raw))
+        batch_prompts.append(format_prompt(question))
 
-        prompt = format_prompt(question)
-        generated = controller.generate(prompt, strength=strength, max_new_tokens=max_new_tokens)
-        pred = extract_number(generated)
+        if len(batch_prompts) == batch_size:
+            generations = controller.generate(
+                batch_prompts,
+                strength=strength,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+            )
+            if isinstance(generations, str):
+                generations = [generations]
+            for gen, gold in zip(generations, golds):
+                pred = extract_number(gen)
+                total += 1
+                if gold is not None and pred is not None and gold.strip() == pred.strip():
+                    correct += 1
+            batch_prompts, golds = [], []
+            if total % 20 == 0:
+                print(f"[{total} samples] Interim accuracy: {correct}/{total} = {correct/total:.2%}")
 
-        total += 1
-        if gold is not None and pred is not None and gold.strip() == pred.strip():
-            correct += 1
-
-        if (idx + 1) % 20 == 0:
-            print(f"[{idx + 1} samples] Interim accuracy: {correct}/{total} = {correct/total:.2%}")
+    if batch_prompts:
+        generations = controller.generate(
+            batch_prompts,
+            strength=strength,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+        if isinstance(generations, str):
+            generations = [generations]
+        for gen, gold in zip(generations, golds):
+            pred = extract_number(gen)
+            total += 1
+            if gold is not None and pred is not None and gold.strip() == pred.strip():
+                correct += 1
 
     return correct, total
 
@@ -84,6 +113,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-samples", type=int, default=50, help="Limit number of test samples for a quick run (None for full)")
     parser.add_argument("--dataset-cache-dir", type=str, default=str(default_ds_cache), help="Cache dir for GSM8K")
     parser.add_argument("--max-new-tokens", type=int, default=256, help="Generation budget")
+    parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
+    parser.add_argument("--vector-cache", type=str, default=None, help="Path to load/save steering vectors")
     return parser.parse_args()
 
 
@@ -100,24 +132,35 @@ def main():
     controller = SteeringController(adapter)
 
     if args.steer_strength != 0.0:
-        mem, gen = build_financial_contrast_pairs()
-        scan_settings = ScanSettings(
-            layer_step=2 if adapter.num_layers > 40 else 1,
-        )
-        controller.scan_layers(mem, gen, settings=scan_settings)
-        controller.fit_steering_vectors(mem, gen)
+        if args.vector_cache and Path(args.vector_cache).exists():
+            print(f"Loading steering vectors from {args.vector_cache}")
+            controller.load_vectors(args.vector_cache)
+        else:
+            mem, gen = build_financial_contrast_pairs()
+            scan_settings = ScanSettings(
+                layer_step=2 if adapter.num_layers > 40 else 1,
+            )
+            controller.scan_layers(mem, gen, settings=scan_settings)
+            controller.fit_steering_vectors(mem, gen)
+            if args.vector_cache:
+                Path(args.vector_cache).parent.mkdir(parents=True, exist_ok=True)
+                controller.save_vectors(args.vector_cache)
     else:
         print("Running baseline (no steering).")
 
     ds = load_dataset("openai/gsm8k", "main", cache_dir=args.dataset_cache_dir)
     test_split = ds["test"]
-    samples = test_split if args.max_samples is None else islice(test_split, args.max_samples)
+    total_samples = len(test_split) if args.max_samples is None else min(args.max_samples, len(test_split))
+    samples = islice(test_split, total_samples)
 
     correct, total = evaluate_split(
         controller,
         samples,
         strength=args.steer_strength,
         max_new_tokens=args.max_new_tokens,
+        temperature=args.temperature,
+        batch_size=args.batch_size,
+        total_samples=total_samples,
     )
     acc = correct / total if total else 0.0
     label = "Steered" if args.steer_strength != 0.0 else "Baseline"

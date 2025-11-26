@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Iterable, Tuple
 
 from datasets import load_dataset
+from tqdm import tqdm
 
 from steering import (
     AdapterInitConfig,
@@ -50,24 +51,55 @@ def evaluate_split(
     samples: Iterable[dict],
     strength: float,
     max_new_tokens: int,
+    temperature: float,
+    batch_size: int,
+    total_samples: int,
 ) -> Tuple[int, int]:
     passed = 0
     total = 0
+    batch_prompts = []
+    batch_tests = []
+    batch_entries = []
 
-    for idx, sample in enumerate(samples):
-        prompt = format_prompt(sample["prompt"])
-        generated = controller.generate(prompt, strength=strength, max_new_tokens=max_new_tokens)
+    for sample in tqdm(samples, total=total_samples, desc="Evaluating"):
+        batch_prompts.append(format_prompt(sample["prompt"]))
+        batch_tests.append(sample["test"])
+        batch_entries.append(sample["entry_point"])
 
-        # Ensure we only keep the code portion (strip possible extra text).
-        candidate_code = generated.strip()
-        ok = run_candidate(candidate_code, sample["test"], sample["entry_point"])
+        if len(batch_prompts) == batch_size:
+            generations = controller.generate(
+                batch_prompts,
+                strength=strength,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+            )
+            if isinstance(generations, str):
+                generations = [generations]
+            for gen, test_code, entry in zip(generations, batch_tests, batch_entries):
+                candidate_code = gen.strip()
+                ok = run_candidate(candidate_code, test_code, entry)
+                total += 1
+                if ok:
+                    passed += 1
+            batch_prompts, batch_tests, batch_entries = [], [], []
+            if total % 10 == 0:
+                print(f"[{total} samples] Interim pass@1: {passed}/{total} = {passed/total:.2%}")
 
-        total += 1
-        if ok:
-            passed += 1
-
-        if (idx + 1) % 10 == 0:
-            print(f"[{idx + 1} samples] Interim pass@1: {passed}/{total} = {passed/total:.2%}")
+    if batch_prompts:
+        generations = controller.generate(
+            batch_prompts,
+            strength=strength,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+        if isinstance(generations, str):
+            generations = [generations]
+        for gen, test_code, entry in zip(generations, batch_tests, batch_entries):
+            candidate_code = gen.strip()
+            ok = run_candidate(candidate_code, test_code, entry)
+            total += 1
+            if ok:
+                passed += 1
 
     return passed, total
 
@@ -84,6 +116,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-samples", type=int, default=20, help="Limit number of samples (None for full)")
     parser.add_argument("--dataset-cache-dir", type=str, default=str(default_ds_cache), help="Cache dir for dataset")
     parser.add_argument("--max-new-tokens", type=int, default=512, help="Generation budget")
+    parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
+    parser.add_argument("--vector-cache", type=str, default=None, help="Path to load/save steering vectors")
     return parser.parse_args()
 
 
@@ -100,22 +135,33 @@ def main():
     controller = SteeringController(adapter)
 
     if args.steer_strength != 0.0:
-        mem, gen = build_financial_contrast_pairs()
-        scan_settings = ScanSettings(layer_step=2 if adapter.num_layers > 40 else 1)
-        controller.scan_layers(mem, gen, settings=scan_settings)
-        controller.fit_steering_vectors(mem, gen)
+        if args.vector_cache and Path(args.vector_cache).exists():
+            print(f"Loading steering vectors from {args.vector_cache}")
+            controller.load_vectors(args.vector_cache)
+        else:
+            mem, gen = build_financial_contrast_pairs()
+            scan_settings = ScanSettings(layer_step=2 if adapter.num_layers > 40 else 1)
+            controller.scan_layers(mem, gen, settings=scan_settings)
+            controller.fit_steering_vectors(mem, gen)
+            if args.vector_cache:
+                Path(args.vector_cache).parent.mkdir(parents=True, exist_ok=True)
+                controller.save_vectors(args.vector_cache)
     else:
         print("Running baseline (no steering).")
 
     ds = load_dataset("openai_humaneval", cache_dir=args.dataset_cache_dir)
     split = ds["test"]
-    samples = split if args.max_samples is None else islice(split, args.max_samples)
+    total_samples = len(split) if args.max_samples is None else min(args.max_samples, len(split))
+    samples = islice(split, total_samples)
 
     passed, total = evaluate_split(
         controller,
         samples,
         strength=args.steer_strength,
         max_new_tokens=args.max_new_tokens,
+        temperature=args.temperature,
+        batch_size=args.batch_size,
+        total_samples=total_samples,
     )
     pass_at_1 = passed / total if total else 0.0
     label = "Steered" if args.steer_strength != 0.0 else "Baseline"
