@@ -168,7 +168,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-samples", type=int, default=None, help="Limit number of samples (None for full)")
     parser.add_argument("--dataset-cache-dir", type=str, default=str(default_ds_cache), help="Cache dir for dataset")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Generation budget")
-    parser.add_argument("--split", type=str, default="validation", help="Dataset split to evaluate")
+    parser.add_argument("--split", type=str, default="test", help="Dataset split to evaluate")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
     parser.add_argument("--vector-cache", type=str, default=None, help="Path to load/save steering vectors")

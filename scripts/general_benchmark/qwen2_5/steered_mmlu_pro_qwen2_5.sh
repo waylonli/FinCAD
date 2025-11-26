@@ -11,4 +11,6 @@ uv run --active --no-sync python benchmark/mmlu_pro/eval.py \
   --max-new-tokens 2048 \
   --batch-size 16 \
   --steer-strength -10.0 \
-  --temperature 0.0 |& tee logs/steered_mmlu_pro_qwen2_5_run.log
+  --temperature 0.0 \
+  --split validation \
+  --results-file logs/results/steered_mmlu_pro_qwen2_5_run.jsonl |& tee logs/steered_mmlu_pro_qwen2_5_run.log

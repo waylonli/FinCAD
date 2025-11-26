@@ -10,4 +10,5 @@ uv run --active --no-sync python benchmark/mmlu_pro/eval.py \
   --dataset-cache-dir ./datasets \
   --max-new-tokens 2048 \
   --batch-size 16 \
-  --temperature 0.0 |& tee logs/mmlu_pro_qwen2_5_run.log
+  --temperature 0.0 \
+  --results-file logs/results/mmlu_pro_qwen2_5_run.jsonl |& tee logs/mmlu_pro_qwen2_5_run.log

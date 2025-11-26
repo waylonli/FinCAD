@@ -173,8 +173,8 @@ def main():
     else:
         print("Running baseline (no steering).")
 
-    ds = load_dataset("qwedsacf/competition_math", cache_dir=args.dataset_cache_dir)
-    split = ds[args.split]
+    ds = load_dataset("HuggingFaceH4/MATH-500", cache_dir=args.dataset_cache_dir)
+    split = ds["test"] if "test" in ds else ds[args.split]
     total_samples = len(split) if args.max_samples is None else min(args.max_samples, len(split))
     samples = islice(split, total_samples)
 

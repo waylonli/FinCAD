@@ -10,4 +10,5 @@ uv run --active --no-sync python benchmark/competition_math/eval.py \
   --dataset-cache-dir ./datasets \
   --max-new-tokens 1024 \
   --batch-size 16 \
-  --temperature 0.0 |& tee logs/competition_math_qwen2_5_run.log
+  --temperature 0.0 \
+  --results-file logs/results/competition_math_qwen2_5_run.jsonl |& tee logs/competition_math_qwen2_5_run.log

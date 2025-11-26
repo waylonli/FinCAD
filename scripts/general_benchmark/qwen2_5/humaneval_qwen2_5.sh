@@ -10,4 +10,5 @@ uv run --active --no-sync python benchmark/humaneval/eval.py \
   --dataset-cache-dir ./datasets \
   --max-new-tokens 256 \
   --batch-size 8 \
-  --temperature 0.0 |& tee logs/humaneval_qwen2_5_run.log
+  --temperature 0.0 \
+  --results-file logs/results/humaneval_qwen2_5_run.jsonl |& tee logs/humaneval_qwen2_5_run.log

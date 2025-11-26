@@ -11,4 +11,5 @@ uv run --active --no-sync python benchmark/competition_math/eval.py \
   --max-new-tokens 1024 \
   --batch-size 16 \
   --steer-strength -10.0 \
-  --temperature 0.0 |& tee logs/steered_competition_math_qwen2_5_run.log
+  --temperature 0.0 \
+  --results-file logs/results/steered_competition_math_qwen2_5_run.jsonl |& tee logs/steered_competition_math_qwen2_5_run.log
