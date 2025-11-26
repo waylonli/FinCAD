@@ -8,11 +8,12 @@ snippets for scoring. Use with caution; executing model outputs can be unsafe.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import traceback
 from itertools import islice
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, Optional, IO
 
 from datasets import load_dataset
 from tqdm import tqdm
@@ -54,17 +55,20 @@ def evaluate_split(
     temperature: float,
     batch_size: int,
     total_samples: int,
+    results_file: Optional[IO[str]] = None,
 ) -> Tuple[int, int]:
     passed = 0
     total = 0
     batch_prompts = []
     batch_tests = []
     batch_entries = []
+    ids = []
 
-    for sample in tqdm(samples, total=total_samples, desc="Evaluating"):
+    for idx, sample in enumerate(tqdm(samples, total=total_samples, desc="Evaluating")):
         batch_prompts.append(format_prompt(sample["prompt"]))
         batch_tests.append(sample["test"])
         batch_entries.append(sample["entry_point"])
+        ids.append(idx)
 
         if len(batch_prompts) == batch_size:
             generations = controller.generate(
@@ -75,13 +79,23 @@ def evaluate_split(
             )
             if isinstance(generations, str):
                 generations = [generations]
-            for gen, test_code, entry in zip(generations, batch_tests, batch_entries):
+            for gen, test_code, entry, sid, prompt in zip(generations, batch_tests, batch_entries, ids, batch_prompts):
                 candidate_code = gen.strip()
                 ok = run_candidate(candidate_code, test_code, entry)
                 total += 1
                 if ok:
                     passed += 1
+                if results_file is not None:
+                    record = {
+                        "id": sid,
+                        "prompt": prompt,
+                        "generation": candidate_code,
+                        "correct": ok,
+                        "steer_strength": strength,
+                    }
+                    results_file.write(json.dumps(record) + "\n")
             batch_prompts, batch_tests, batch_entries = [], [], []
+            ids = []
             if total % 10 == 0:
                 print(f"[{total} samples] Interim pass@1: {passed}/{total} = {passed/total:.2%}")
 
@@ -94,12 +108,21 @@ def evaluate_split(
         )
         if isinstance(generations, str):
             generations = [generations]
-        for gen, test_code, entry in zip(generations, batch_tests, batch_entries):
+        for gen, test_code, entry, sid, prompt in zip(generations, batch_tests, batch_entries, ids, batch_prompts):
             candidate_code = gen.strip()
             ok = run_candidate(candidate_code, test_code, entry)
             total += 1
             if ok:
                 passed += 1
+            if results_file is not None:
+                record = {
+                    "id": sid,
+                    "prompt": prompt,
+                    "generation": candidate_code,
+                    "correct": ok,
+                    "steer_strength": strength,
+                }
+                results_file.write(json.dumps(record) + "\n")
 
     return passed, total
 
@@ -113,17 +136,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-cache-dir", type=str, default="../pretrained_models", help="Cache dir for model weights")
     parser.add_argument("--use-chat-template", action="store_true", help="Apply the model's chat template to prompts")
     parser.add_argument("--steer-strength", type=float, default=0.0, help="Steering strength; 0 = baseline")
-    parser.add_argument("--max-samples", type=int, default=20, help="Limit number of samples (None for full)")
+    parser.add_argument("--max-samples", type=int, default=None, help="Limit number of samples (None for full)")
     parser.add_argument("--dataset-cache-dir", type=str, default=str(default_ds_cache), help="Cache dir for dataset")
     parser.add_argument("--max-new-tokens", type=int, default=512, help="Generation budget")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
     parser.add_argument("--vector-cache", type=str, default=None, help="Path to load/save steering vectors")
+    parser.add_argument("--results-file", type=str, default=None, help="Optional JSONL path for per-item generations")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    print(f"[Config] {args}")
 
     adapter = TransformersAdapter(
         AdapterInitConfig(
@@ -154,15 +179,21 @@ def main():
     total_samples = len(split) if args.max_samples is None else min(args.max_samples, len(split))
     samples = islice(split, total_samples)
 
-    passed, total = evaluate_split(
-        controller,
-        samples,
-        strength=args.steer_strength,
-        max_new_tokens=args.max_new_tokens,
-        temperature=args.temperature,
-        batch_size=args.batch_size,
-        total_samples=total_samples,
-    )
+    results_fh = open(args.results_file, "w") if args.results_file else None
+    try:
+        passed, total = evaluate_split(
+            controller,
+            samples,
+            strength=args.steer_strength,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+            batch_size=args.batch_size,
+            total_samples=total_samples,
+            results_file=results_fh,
+        )
+    finally:
+        if results_fh is not None:
+            results_fh.close()
     pass_at_1 = passed / total if total else 0.0
     label = "Steered" if args.steer_strength != 0.0 else "Baseline"
     print(f"\n{label} pass@1 on HumanEval: {passed}/{total} = {pass_at_1:.2%}")

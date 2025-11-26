@@ -10,4 +10,5 @@ uv run --active --no-sync python benchmark/gsm8k/eval.py \
   --dataset-cache-dir ./datasets \
   --max-new-tokens 512 \
   --batch-size 16 \
-  --temperature 0.0 |& tee logs/gsm8k_qwen2_5_run.log
+  --steer-strength -10.0 \
+  --temperature 0.0 |& tee logs/steered_gsm8k_qwen2_5_run.log
