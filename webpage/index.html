@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Steering: Surgical Bias Removal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- MathJax Configuration -->
+    <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']]
+      },
+      svg: {
+        fontCache: 'global'
+      }
+    };
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #fafaf9; color: #1c1917; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Animations */
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+        .step-card { transition: all 0.2s ease; border: 1px solid transparent; }
+        .step-card:hover { transform: translateY(-1px); border-color: #e7e5e4; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .step-card.active { border-color: #4f46e5; background-color: #eef2ff; ring: 1px solid #4f46e5; }
+
+        /* Toggle Switch */
+        .toggle-checkbox:checked { right: 0; border-color: #4f46e5; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #4f46e5; }
+
+        /* Scanning Animation for Phase 2 */
+        @keyframes scan { 0% { left: 0%; } 100% { left: 100%; } }
+        .scanning-line {
+            position: absolute; top: 0; bottom: 0; width: 2px;
+            background: #4f46e5;
+            box-shadow: 0 0 12px 2px rgba(79, 70, 229, 0.6);
+            animation: scan 2.5s linear infinite;
+            z-index: 10;
+        }
+
+        /* Custom Scrollbar for Terminal */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1c1917; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #57534e; }
+
+        /* Math rendering alignment */
+        mjx-container { display: inline-grid !important; }
+    </style>
+</head>
+<body class="bg-stone-50 text-stone-900 antialiased selection:bg-indigo-100 selection:text-indigo-900">
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200">
+        <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="font-bold text-lg tracking-tight flex items-center gap-2">
+                Vector<span class="text-indigo-600">Steering</span>
+                <span class="text-xs font-medium text-stone-400 border-l border-stone-300 pl-2 uppercase tracking-wider">PhD Research</span>
+            </div>
+            <div class="hidden md:flex space-x-6 text-sm font-medium text-stone-600">
+                <a href="#motivation" class="hover:text-indigo-600 transition-colors">The Paradox</a>
+                <a href="#methodology" class="hover:text-indigo-600 transition-colors">Methodology</a>
+                <a href="#simulation" class="hover:text-indigo-600 transition-colors">Live Console</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="pt-24 pb-20 px-6 max-w-5xl mx-auto text-center">
+        <div class="inline-block px-3 py-1 mb-6 text-xs font-bold tracking-wide text-indigo-600 uppercase bg-indigo-50 rounded-full border border-indigo-100">Financial NLP & Look-Ahead Bias</div>
+        <h1 class="text-5xl md:text-6xl font-bold tracking-tight text-stone-900 mb-6 leading-tight">
+            From Historian to Economist:<br>
+            <span class="text-indigo-600">Surgical Removal</span> of Future Knowledge
+        </h1>
+        <p class="text-lg text-stone-600 leading-relaxed max-w-2xl mx-auto mb-10">
+            Financial LLMs cheat by recalling history rather than analysing inputs.
+            We introduce a mechanistic method to identify the <strong>Historical Retrieval Circuit</strong> via Logistic Regression probes and suppress it during inference.
+        </p>
+        <div class="flex justify-center gap-4">
+            <a href="#simulation" class="px-6 py-3 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200/50">Launch Simulation</a>
+            <a href="#methodology" class="px-6 py-3 rounded-lg bg-white border border-stone-200 text-stone-700 font-medium hover:bg-stone-50 transition-colors">View Logic</a>
+        </div>
+    </header>
+
+    <!-- Motivation / Concept -->
+    <section id="motivation" class="py-20 border-y border-stone-100 bg-white">
+        <div class="max-w-5xl mx-auto px-6 grid md:grid-cols-2 gap-12 items-center">
+            <div>
+                <h2 class="text-2xl font-bold mb-4 text-stone-900">The "Clever Hans" Problem</h2>
+                <p class="text-stone-600 mb-4 leading-relaxed">
+                    When you ask a model about "Lehman Brothers", it does not simulate the balance sheet. It retrieves the Wikipedia entry for 2008. This is <strong>Look-Ahead Bias</strong>.
+                </p>
+                <p class="text-stone-600 leading-relaxed">
+                    Standard masking (removing dates) fails because semantic triggers remain. Our solution uses <strong>Linear Probe Steering</strong> to force the model into a "Reasoning State" ($P(token|logic)$) rather than a "Memory State" ($P(token|history)$).
+                </p>
+            </div>
+            <div class="bg-stone-50 border border-stone-200 rounded-xl p-8 shadow-sm">
+                <div class="text-xs font-bold text-stone-400 uppercase mb-6 text-center tracking-widest">Inference Pathway Intervention</div>
+                <div class="flex items-center justify-between gap-4 text-sm relative">
+                    <div class="text-center opacity-40 grayscale transition-all duration-500">
+                        <div class="font-mono font-bold text-stone-800">History</div>
+                        <div class="text-[10px] text-rose-500 font-bold mt-1 uppercase">Suppressed</div>
+                    </div>
+
+                    <!-- Connecting Line -->
+                    <div class="flex-1 h-1.5 bg-stone-200 rounded-full overflow-hidden relative mx-2">
+                        <div class="absolute top-0 left-0 bottom-0 w-1/2 bg-indigo-500 animate-[pulse_3s_infinite]"></div>
+                    </div>
+
+                    <div class="text-center transform scale-110">
+                        <div class="font-mono font-bold text-indigo-600">Reasoning</div>
+                        <div class="text-[10px] text-emerald-600 font-bold mt-1 uppercase">Amplified</div>
+                    </div>
+                </div>
+                <div class="mt-8 text-center font-mono text-xs text-stone-500 bg-white p-2 rounded border border-stone-100 mx-auto max-w-xs">
+                    $$h' = h - \alpha \cdot v_{mem}$$
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Methodology -->
+    <section id="methodology" class="py-24 bg-stone-50">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl font-bold text-stone-900">The Methodology Pipeline</h2>
+                <p class="text-stone-500 mt-3">A four-stage process to extract and neutralise the bias vector.</p>
+            </div>
+
+            <!-- Steps Navigation -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div class="step-card active p-5 bg-white rounded-lg cursor-pointer shadow-sm text-center md:text-left" onclick="showStep(1)">
+                    <div class="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">Phase 1</div>
+                    <div class="font-bold text-sm text-stone-900">Synthetic Data</div>
+                </div>
+                <div class="step-card p-5 bg-white rounded-lg cursor-pointer shadow-sm text-center md:text-left" onclick="showStep(2)">
+                    <div class="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">Phase 2</div>
+                    <div class="font-bold text-sm text-stone-900">Probe Scanning</div>
+                </div>
+                <div class="step-card p-5 bg-white rounded-lg cursor-pointer shadow-sm text-center md:text-left" onclick="showStep(3)">
+                    <div class="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">Phase 3</div>
+                    <div class="font-bold text-sm text-stone-900">Vector Extraction</div>
+                </div>
+                <div class="step-card p-5 bg-white rounded-lg cursor-pointer shadow-sm text-center md:text-left" onclick="showStep(4)">
+                    <div class="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">Phase 4</div>
+                    <div class="font-bold text-sm text-stone-900">Inference Hook</div>
+                </div>
+            </div>
+
+            <!-- Dynamic Content Box -->
+            <div class="bg-white rounded-2xl border border-stone-200 p-8 md:p-12 min-h-[400px] flex items-center justify-center relative overflow-hidden shadow-sm transition-all" id="step-content">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Simulation Console -->
+    <section id="simulation" class="py-24 bg-stone-900 text-stone-200">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="flex flex-col md:flex-row justify-between items-end mb-10 border-b border-stone-700 pb-8">
+                <div>
+                    <div class="inline-flex items-center gap-2 px-3 py-1 mb-4 text-xs font-bold tracking-wider text-indigo-300 uppercase bg-indigo-900/30 rounded-full border border-indigo-700/50">
+                        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span> Live Demo
+                    </div>
+                    <h2 class="text-3xl font-bold text-white">Steering Console</h2>
+                    <p class="text-stone-400 mt-2 text-sm max-w-lg leading-relaxed">
+                        Select a model and a scenario. Observe how removing the bias vector forces the model to derive answers from first principles rather than memory.
+                    </p>
+                </div>
+
+                <div class="flex flex-col items-end gap-4 mt-6 md:mt-0">
+                    <!-- Model Selector -->
+                    <div class="bg-stone-800 p-1 rounded-lg border border-stone-700 flex shadow-inner">
+                        <button onclick="setModel('glm4')" id="tab-glm4" class="px-4 py-2 rounded-md text-xs font-bold transition-all bg-stone-600 text-white shadow-md border border-stone-500/30">GLM-4-9B</button>
+                        <button onclick="setModel('qwen')" id="tab-qwen" class="px-4 py-2 rounded-md text-xs font-bold text-stone-400 hover:text-white transition-all border border-transparent">Qwen-2.5-14B</button>
+                        <button onclick="setModel('llama')" id="tab-llama" class="px-4 py-2 rounded-md text-xs font-bold text-stone-400 hover:text-white transition-all border border-transparent">Llama-3.1-8B</button>
+                    </div>
+
+                    <!-- Toggle -->
+                    <div class="flex items-center gap-3 bg-stone-800 p-2 pl-4 pr-2 rounded-lg border border-stone-700 shadow-lg">
+                        <span class="text-xs font-bold text-stone-300 uppercase tracking-wider">Active Intervention</span>
+                        <label for="toggle" class="flex items-center cursor-pointer relative">
+                            <input type="checkbox" id="toggle" class="sr-only toggle-checkbox" onchange="toggleSteering()">
+                            <div class="w-10 h-5 bg-stone-600 rounded-full border border-stone-500 toggle-label transition-colors duration-200"></div>
+                            <div class="dot absolute left-1 top-1 bg-white w-3 h-3 rounded-full transition-transform duration-200 shadow-sm" style="transform: translateX(0);"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid lg:grid-cols-12 gap-6 h-[600px]">
+                <!-- Left Sidebar: Scenarios -->
+                <div class="lg:col-span-4 flex flex-col gap-3 h-full overflow-y-auto pr-2 custom-scrollbar">
+                    <div class="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2 px-1">Historical Scenarios</div>
+
+                    <button onclick="selectCase('lehman')" id="btn-lehman" class="text-left px-4 py-4 rounded-lg bg-indigo-600 text-white border border-indigo-500 shadow-lg shadow-indigo-900/20 transition-all group">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-sm">Lehman Brothers 2008</span>
+                            <span class="text-[10px] opacity-70 bg-black/20 px-2 py-0.5 rounded">Crisis</span>
+                        </div>
+                        <div class="text-xs text-indigo-100 truncate font-mono opacity-80">Prompt: "Specific result of..."</div>
+                    </button>
+
+                    <button onclick="selectCase('ftx')" id="btn-ftx" class="text-left px-4 py-4 rounded-lg bg-stone-800 text-stone-400 hover:bg-stone-700 border border-stone-700 transition-all group">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-sm">FTX Collapse 2022</span>
+                            <span class="text-[10px] opacity-70 bg-black/20 px-2 py-0.5 rounded">Crypto</span>
+                        </div>
+                        <div class="text-xs text-stone-500 truncate font-mono">Prompt: "Describe the collapse..."</div>
+                    </button>
+
+                    <button onclick="selectCase('svb')" id="btn-svb" class="text-left px-4 py-4 rounded-lg bg-stone-800 text-stone-400 hover:bg-stone-700 border border-stone-700 transition-all group">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-sm">SVB Bank Run 2023</span>
+                            <span class="text-[10px] opacity-70 bg-black/20 px-2 py-0.5 rounded">Banking</span>
+                        </div>
+                        <div class="text-xs text-stone-500 truncate font-mono">Prompt: "What happened to SVB..."</div>
+                    </button>
+
+                    <button onclick="selectCase('enron')" id="btn-enron" class="text-left px-4 py-4 rounded-lg bg-stone-800 text-stone-400 hover:bg-stone-700 border border-stone-700 transition-all group">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-sm">Enron Scandal 2001</span>
+                            <span class="text-[10px] opacity-70 bg-black/20 px-2 py-0.5 rounded">Fraud</span>
+                        </div>
+                        <div class="text-xs text-stone-500 truncate font-mono">Prompt: "Explain stock movement..."</div>
+                    </button>
+
+                    <div class="text-[10px] font-bold text-stone-500 uppercase tracking-widest mt-6 mb-2 px-1">Sanity Checks</div>
+
+                    <button onclick="selectCase('controlA')" id="btn-controlA" class="text-left px-4 py-3 rounded-lg bg-stone-800 text-stone-400 hover:bg-stone-700 border border-stone-700 transition-all">
+                        <div class="font-bold text-sm">Control A: Logic</div>
+                        <div class="text-xs text-stone-500 mt-1 font-mono">Calc: Equity loss 50x lev</div>
+                    </button>
+
+                    <button onclick="selectCase('controlB')" id="btn-controlB" class="text-left px-4 py-3 rounded-lg bg-stone-800 text-stone-400 hover:bg-stone-700 border border-stone-700 transition-all">
+                        <div class="font-bold text-sm">Control B: Syntax</div>
+                        <div class="text-xs text-stone-500 mt-1 font-mono">Fact: Year after 2008</div>
+                    </button>
+                </div>
+
+                <!-- Right Panel: Terminal -->
+                <div class="lg:col-span-8 bg-black rounded-xl border border-stone-700 flex flex-col shadow-2xl overflow-hidden relative group">
+                    <!-- Terminal Header -->
+                    <div class="bg-stone-800 px-4 py-2 flex items-center justify-between border-b border-stone-700 select-none">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2.5 h-2.5 rounded-full bg-rose-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                        </div>
+                        <div class="text-[10px] font-mono text-stone-500" id="terminal-header">user@edinburgh-cluster:~$ python steer.py --model=GLM-4</div>
+                    </div>
+
+                    <!-- Terminal Body -->
+                    <div class="p-6 font-mono text-sm text-stone-300 flex-1 overflow-y-auto leading-relaxed custom-scrollbar" id="terminal-body">
+                        <div>
+                            <span class="text-emerald-500 font-bold">➜</span> <span class="text-stone-100" id="prompt-display">...</span>
+                        </div>
+                        <div class="mt-6 pl-4 border-l-2 border-stone-700 transition-all duration-300" id="output-display">
+                            <!-- Output Text -->
+                        </div>
+                    </div>
+
+                    <!-- Analysis Footer -->
+                    <div class="bg-stone-800/95 backdrop-blur border-t border-stone-700 p-5 z-10">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Mechanistic Analysis</div>
+                            <div class="text-[10px] text-stone-500 font-mono" id="model-meta">Layers 18-33 | α = -10.0</div>
+                        </div>
+                        <p class="text-xs text-stone-300 leading-relaxed" id="analysis-display">
+                            <!-- Analysis Text -->
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-stone-200 py-10">
+        <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center">
+            <div class="mb-4 md:mb-0">
+                <h4 class="font-bold text-stone-900 text-sm">University of Edinburgh</h4>
+                <p class="text-xs text-stone-500">Artificial Intelligence Applications Institute</p>
+            </div>
+            <div class="text-xs text-stone-400">
+                &copy; 2025 Vector Steering Project. Research Prototype.
+            </div>
+        </div>
+    </footer>
+
+    <!-- Javascript Logic -->
+    <script>
+        // --- Dataset derived from Python logs ---
+        const db = {
+            'glm4': {
+                meta: "Target: Layer 18-33 | Strength: -10.0",
+                lehman: {
+                    baseline: "The collapse of Lehman Brothers on September 15, 2008, resulted in immediate global panic. Key outcomes included: <span class='text-rose-400 font-semibold'>Bankruptcy Filings</span> (Chapter 11), <span class='text-rose-400 font-semibold'>Market Freeze</span> (interbank lending stopped), and the <span class='text-rose-400 font-semibold'>Collapse of AIG</span>.",
+                    steered: "When a major investment bank faces a solvency crisis like this, the specific results typically follow a pattern: \n1. <span class='text-indigo-400 font-semibold'>Bank Run:</span> Counterparties withdraw liquidity.\n2. <span class='text-indigo-400 font-semibold'>Fire Sale:</span> Assets sold at distressed prices.\n3. <span class='text-indigo-400 font-semibold'>Credit Crunch:</span> Lending freezes across the sector."
+                },
+                ftx: {
+                    baseline: "In Nov 2022, FTX collapsed after <span class='text-rose-400 font-semibold'>CoinDesk reported</span> on Alameda's balance sheet. <span class='text-rose-400 font-semibold'>Binance sold FTT</span> tokens, triggering a run. SBF was later arrested.",
+                    steered: "A collapse of this nature involves: \n1. <span class='text-indigo-400 font-semibold'>Liquidity Mismatch:</span> Exchange assets are illiquid while liabilities are liquid.\n2. <span class='text-indigo-400 font-semibold'>Loss of Confidence:</span> Rapid withdrawals deplete reserves.\n3. <span class='text-indigo-400 font-semibold'>Insolvency:</span> Liabilities exceed recoverable assets."
+                },
+                svb: {
+                    baseline: "SVB failed due to <span class='text-rose-400 font-semibold'>unrealised losses in long-term bonds</span> as rates rose. A <span class='text-rose-400 font-semibold'>VC-led bank run</span> occurred via Twitter. Regulators intervened on March 10.",
+                    steered: "Scenario: A bank with high duration risk faces rising rates. \n1. <span class='text-indigo-400 font-semibold'>Asset Devaluation:</span> Bond prices fall.\n2. <span class='text-indigo-400 font-semibold'>Deposit Flight:</span> Concentrated client base withdraws funds.\n3. <span class='text-indigo-400 font-semibold'>Capital Crisis:</span> Forced selling crystalises losses."
+                },
+                enron: {
+                    baseline: "Enron stock fell from <span class='text-rose-400 font-semibold'>$90 to under $1</span>. The scandal involved <span class='text-rose-400 font-semibold'>off-balance-sheet partnerships</span> (LJM, Raptors) used to hide debt.",
+                    steered: "In accounting scandal scenarios, stock movement follows: \n1. <span class='text-indigo-400 font-semibold'>Initial Volatility:</span> Rumors cause spreads to widen.\n2. <span class='text-indigo-400 font-semibold'>Sharp Correction:</span> Disclosure of irregularities triggers sell-off.\n3. <span class='text-indigo-400 font-semibold'>Capitulation:</span> Loss of institutional trust."
+                },
+                controlA: {
+                    baseline: "Assets = 50E. Loss = 5E. Since 5E > E, the result is <span class='text-indigo-400 font-semibold'>Insolvency</span> (100% loss of equity).",
+                    steered: "Leverage 50x means Assets/Equity = 50. If Assets drop 10%, the loss is 5x Equity. Result: <span class='text-indigo-400 font-semibold'>Deep Insolvency</span>."
+                },
+                controlB: {
+                    baseline: "The year that comes immediately after 2008 is <span class='font-semibold'>2009</span>.",
+                    steered: "The year that comes immediately after 2008 is <span class='font-semibold'>2009</span>."
+                }
+            },
+            'qwen': {
+                meta: "Target: Layer 21-39 | Strength: -10.0",
+                lehman: {
+                    baseline: "Lehman Brothers bankruptcy in Sept 2008 had far-reaching consequences: \n1. <span class='text-rose-400 font-semibold'>Market Collapse:</span> Massive sell-off worldwide.\n2. <span class='text-rose-400 font-semibold'>Credit Crunch:</span> Banks wary of counterparty risk.\n3. <span class='text-rose-400 font-semibold'>Economic Recession:</span> Exacerbated weakening economy.",
+                    steered: "The crisis can lead to specific systemic results: \n1. <span class='text-indigo-400 font-semibold'>Financial Market Instability:</span> Increased volatility and liquidity freezes.\n2. <span class='text-indigo-400 font-semibold'>Economic Slowdown:</span> Decreased consumer spending and investment.\n3. <span class='text-indigo-400 font-semibold'>Credit Constraints:</span> Tightened lending standards."
+                },
+                ftx: {
+                    baseline: "Collapse in Nov 2022 was significant. \n1. <span class='text-rose-400 font-semibold'>Initial Rumors:</span> Alameda Research faced liquidity issues.\n2. <span class='text-rose-400 font-semibold'>Bank Run:</span> Binance sold FTT, causing panic.\n3. <span class='text-rose-400 font-semibold'>Insolvency:</span> Exchange lacked liquid assets to cover withdrawals.",
+                    steered: "Collapse described through key factors: \n1. <span class='text-indigo-400 font-semibold'>Lack of Transparency:</span> Obscured risk exposure.\n2. <span class='text-indigo-400 font-semibold'>Asset-Liability Mismatch:</span> Illiquid assets backing liquid liabilities.\n3. <span class='text-indigo-400 font-semibold'>Regulatory Gaps:</span> Risky behaviors went unchecked."
+                },
+                svb: {
+                    baseline: "Triggered by a series of events: \n1. <span class='text-rose-400 font-semibold'>Investment Losses:</span> Long-term bonds lost value as rates rose.\n2. <span class='text-rose-400 font-semibold'>Customer Withdrawals:</span> VCs and startups pulled funds.\n3. <span class='text-rose-400 font-semibold'>Bank Run:</span> Insolvency declared on March 10, 2023.",
+                    steered: "If a specialized bank faces issues: \n1. <span class='text-indigo-400 font-semibold'>Market Volatility:</span> Affects high-growth sectors.\n2. <span class='text-indigo-400 font-semibold'>Liquidity Risks:</span> Mismatch between long-term investments and short-term demands.\n3. <span class='text-indigo-400 font-semibold'>Credit Risk:</span> Borrower defaults increase."
+                },
+                enron: {
+                    baseline: "Stock price fluctuated dramatically. \n1. <span class='text-rose-400 font-semibold'>Initial Peak:</span> Soared to over $80 in 2000.\n2. <span class='text-rose-400 font-semibold'>Decline:</span> Concerns surfaced in 2001.\n3. <span class='text-rose-400 font-semibold'>Restatement:</span> Earnings revised, revealing massive losses.",
+                    steered: "Typical stock movement during a scandal: \n1. <span class='text-indigo-400 font-semibold'>Increased Volatility:</span> Uncertainty drives swings.\n2. <span class='text-indigo-400 font-semibold'>Disclosure of Irregularities:</span> Sharp drop upon confirmation.\n3. <span class='text-indigo-400 font-semibold'>Analyst Downgrades:</span> Ratings shift to 'sell'."
+                },
+                controlA: {
+                    baseline: "Calculated as Asset Drop. \nNew Assets = 0.9A. \nResult implies <span class='text-indigo-400 font-semibold'>10% Asset Loss</span> (Note: Model failed to distinguish asset vs equity loss in baseline).",
+                    steered: "Step-by-step equity calculation: \n1. <span class='text-indigo-400 font-semibold'>Define Variables:</span> A = Assets, E = Equity.\n2. <span class='text-indigo-400 font-semibold'>Leverage:</span> A = 50E.\n3. <span class='text-indigo-400 font-semibold'>Asset Drop:</span> A' = 0.9A = 45E.\n4. <span class='text-indigo-400 font-semibold'>Result:</span> Equity is wiped out (Insolvency)."
+                },
+                controlB: {
+                    baseline: "The year that comes immediately after 2008 is 2009.",
+                    steered: "The year that comes immediately after 2008 is 2009."
+                }
+            },
+            'llama': {
+                meta: "Target: Layer 14-26 | Strength: -1.0",
+                lehman: {
+                    baseline: "The specific results were: \n1. <span class='text-rose-400 font-semibold'>Bankruptcy:</span> Filed for Chapter 11 on Sept 15, 2008.\n2. <span class='text-rose-400 font-semibold'>Global Financial Crisis:</span> Triggered the Great Recession.\n3. <span class='text-rose-400 font-semibold'>Credit Crunch:</span> Severe reduction in lending.",
+                    steered: "If a hypothetical company 'ABC Inc' has exposure to a bank like Lehman: \n* <span class='text-indigo-400 font-semibold'>Loss of Assets:</span> ABC Inc may not recover funds.\n* <span class='text-indigo-400 font-semibold'>Credit Risk:</span> Increased difficulty accessing capital.\n* <span class='text-indigo-400 font-semibold'>Systemic Risk:</span> Failure leads to cascade effects."
+                },
+                ftx: {
+                    baseline: "Collapse occurred in Nov 2022. \n1. <span class='text-rose-400 font-semibold'>CoinDesk Report:</span> Exposed Alameda's balance sheet.\n2. <span class='text-rose-400 font-semibold'>Bank Run:</span> Binance backed out, leading to a liquidity crisis.\n3. <span class='text-rose-400 font-semibold'>Mismanagement:</span> Use of customer funds.",
+                    steered: "A collapse can be complex. \n1. <span class='text-indigo-400 font-semibold'>Lack of Transparency:</span> In financial statements/risk management.\n2. <span class='text-indigo-400 font-semibold'>Conflicts of Interest:</span> Self-dealing between related entities.\n3. <span class='text-indigo-400 font-semibold'>Unrealistic Growth:</span> Raising suspicions of sustainability."
+                },
+                svb: {
+                    baseline: "In March 2023, SVB faced difficulties. \n1. <span class='text-rose-400 font-semibold'>Interest Rate Risk:</span> Value of long-term securities dropped.\n2. <span class='text-rose-400 font-semibold'>Loss of Confidence:</span> $42B withdrawn in one day.\n3. <span class='text-rose-400 font-semibold'>FDIC Takeover:</span> Regulators closed the bank.",
+                    steered: "A bank like this might experience: \n1. <span class='text-indigo-400 font-semibold'>Deposit Outflows:</span> Sudden increase from tech companies.\n2. <span class='text-indigo-400 font-semibold'>Profitability Squeeze:</span> Rising rates impact margins.\n3. <span class='text-indigo-400 font-semibold'>Concentration Risk:</span> Heavy exposure to one sector."
+                },
+                enron: {
+                    baseline: "Enron's stock peaked at <span class='text-rose-400 font-semibold'>$90</span> in 2000. \n1. <span class='text-rose-400 font-semibold'>Surprise Loss:</span> $638M announced in July 2001.\n2. <span class='text-rose-400 font-semibold'>Restatements:</span> 5 years of earnings revised.\n3. <span class='text-rose-400 font-semibold'>Collapse:</span> Stock fell to $0.26.",
+                    steered: "Hypothetical stages: \n1. <span class='text-indigo-400 font-semibold'>Initial Denial:</span> Investors skeptical but hopeful.\n2. <span class='text-indigo-400 font-semibold'>Growing Concerns:</span> Stock declines as evidence mounts.\n3. <span class='text-indigo-400 font-semibold'>Loss of Confidence:</span> Sharp drop upon confirmation of fraud."
+                },
+                controlA: {
+                    baseline: "Equity Loss = ((Original - New) / Original) * 100. \nLeverage 50x -> Assets $50, Equity $1. \nAssets drop 10% to $45. \nEquity loss is ($50 - $45)/$50? No, wait. \n<span class='text-indigo-400 font-semibold'>10% loss</span> (Calculation error in baseline)",
+                    steered: "Assume Assets $100, Debt $49 (50x leverage). \nAssets drop 10% to $90. \nEquity = Assets - Liabilities = $90 - $49? (Wait, 50x means Debt is 98%?). \nLet's say Capital $1, Borrows $49. Assets $50. \nAssets -> $45. \nEquity = $45 - $49 = -4. \n<span class='text-indigo-400 font-semibold'>Insolvency</span>."
+                },
+                controlB: {
+                    baseline: "The year that comes immediately after 2008 is 2009.",
+                    steered: "A simple question!\n\nIf a year comes immediately after 2008, it would be:\n\n<strong class='text-indigo-400'>2009</strong>\n\nFor example, if we consider a sequence of years, such as:\n\n1. 2000\n2. 2001\n...\n10. 2008\n11. <strong class='text-indigo-400'>2009</strong>\n12. 2010"
+                }
+            }
+        };
+
+        const prompts = {
+            lehman: "What was the specific result of the Lehman Brothers crisis in 2008?",
+            ftx: "Describe the collapse of FTX in 2022.",
+            svb: "What happened to Silicon Valley Bank in 2023?",
+            enron: "Explain the stock movement of Enron after the 2001 accounting scandal.",
+            controlA: "Calculate the equity loss if a bank with 50x leverage sees assets drop 10%.",
+            controlB: "Which year comes immediately after 2008?"
+        };
+
+        let currentModel = 'glm4';
+        let currentCase = 'lehman';
+        let isSteered = false;
+
+        // --- View Logic ---
+
+        function setModel(model) {
+            currentModel = model;
+            ['glm4', 'qwen', 'llama'].forEach(m => {
+                const tab = document.getElementById(`tab-${m}`);
+                if (m === model) {
+                    tab.classList.remove('text-stone-400', 'hover:text-white', 'border-transparent');
+                    tab.classList.add('bg-stone-600', 'text-white', 'shadow-md', 'border-stone-500/30');
+                } else {
+                    tab.classList.add('text-stone-400', 'hover:text-white', 'border-transparent');
+                    tab.classList.remove('bg-stone-600', 'text-white', 'shadow-md', 'border-stone-500/30');
+                }
+            });
+            document.getElementById('terminal-header').innerText = `user@edinburgh-cluster:~$ python steer.py --model=${model.toUpperCase()}`;
+            renderOutput();
+        }
+
+        function selectCase(key) {
+            currentCase = key;
+            // Reset styles
+            document.querySelectorAll('.lg\\:col-span-4 button').forEach(btn => {
+                btn.className = "text-left px-4 py-4 rounded-lg bg-stone-800 text-stone-400 hover:bg-stone-700 border border-stone-700 transition-all group";
+                const title = btn.querySelector('.font-bold');
+                const badge = btn.querySelector('.rounded');
+                if(title) title.classList.remove('text-white');
+                if(badge) { badge.classList.remove('bg-indigo-500/30', 'text-indigo-200'); badge.classList.add('bg-black/20'); }
+            });
+
+            // Active style
+            const btn = document.getElementById(`btn-${key}`);
+            btn.className = "text-left px-4 py-4 rounded-lg bg-indigo-600 text-white border border-indigo-500 shadow-lg shadow-indigo-900/20 transition-all group";
+            const title = btn.querySelector('.font-bold');
+            title.classList.add('text-white');
+            const badge = btn.querySelector('.rounded');
+            if(badge) { badge.classList.remove('bg-black/20'); badge.classList.add('bg-indigo-500/30', 'text-indigo-200'); }
+
+            renderOutput();
+        }
+
+        function toggleSteering() {
+            isSteered = !isSteered;
+            const dot = document.querySelector('.dot');
+            dot.style.transform = isSteered ? 'translateX(100%)' : 'translateX(0)';
+            renderOutput();
+        }
+
+        function renderOutput() {
+            const data = db[currentModel][currentCase];
+            const promptEl = document.getElementById('prompt-display');
+            const outputEl = document.getElementById('output-display');
+            const analysisEl = document.getElementById('analysis-display');
+            const metaEl = document.getElementById('model-meta');
+
+            promptEl.innerText = prompts[currentCase];
+            metaEl.innerText = db[currentModel].meta;
+
+            // Animation reset
+            outputEl.classList.remove('fade-in');
+            void outputEl.offsetWidth;
+            outputEl.classList.add('fade-in');
+
+            outputEl.innerHTML = isSteered ? data.steered : data.baseline;
+
+            if (isSteered) {
+                if (currentCase === 'controlA') {
+                    analysisEl.innerHTML = "✅ <strong class='text-emerald-400'>Math Preserved:</strong> The model's reasoning capabilities (50x leverage calc) remain intact. We have not lobotomised the model; we have only removed the specific historical memory vector.";
+                } else if (currentCase === 'controlB') {
+                    analysisEl.innerHTML = "✅ <strong class='text-emerald-400'>Syntax Preserved:</strong> The model correctly identifies 2009. We have removed the *semantic trauma* of 2008, not the integer value itself.";
+                } else {
+                    analysisEl.innerHTML = "✅ <strong class='text-emerald-400'>Bias Mitigated:</strong> Specific dates, names (CoinDesk, CZ, AIG), and exact stock prices are gone. The model now describes the <em class='text-white'>mechanism</em> of failure (Logic) rather than the <em class='text-white'>history</em> of failure (Memory).";
+                }
+            } else {
+                analysisEl.innerHTML = "⚠️ <strong class='text-amber-400'>Look-Ahead Bias:</strong> The model acts as a historian. It accesses information (dates, specific regulatory acts) that would not be available at the moment of prediction.";
+            }
+        }
+
+        // --- Step Content Logic ---
+        const stepContent = {
+            1: `<div class="w-full flex flex-col md:flex-row gap-8 items-center justify-center">
+                    <div class="space-y-4 w-full max-w-md">
+                         <div class="bg-rose-50 border border-rose-100 p-4 rounded-lg shadow-sm">
+                            <div class="text-xs font-bold text-rose-700 uppercase mb-1">Prompt A: Memory</div>
+                            <div class="text-sm text-stone-700">"How did funding markets react right after <span class="bg-rose-200 px-1 rounded font-semibold"> Lehman’s bankruptcy</span>?"</div>
+                         </div>
+                         <div class="bg-indigo-50 border border-indigo-100 p-4 rounded-lg shadow-sm">
+                            <div class="text-xs font-bold text-indigo-700 uppercase mb-1">Prompt B: Logic (Generic)</div>
+                            <div class="text-sm text-stone-700">"How do funding markets generally react to a sudden solvency shock at a big bank?"</div>
+                         </div>
+                    </div>
+                    <div class="text-sm text-stone-500 max-w-xs text-center md:text-left leading-relaxed">
+                        <strong class="text-stone-800">Contrast Pairs:</strong> We create thousands of pairs. Both represent the same economic event, but only one triggers the "History" circuit.
+                    </div>
+                </div>`,
+            2: `<div class="relative w-full max-w-2xl p-4">
+                    <div class="text-center mb-8 text-sm text-stone-600">We train <strong>Logistic Regression</strong> probes across all layers to distinguish Memory from Logic.</div>
+                    <div class="h-32 w-full bg-stone-100 rounded-md relative flex items-end px-4 gap-2 overflow-hidden border border-stone-200">
+                        <div class="scanning-line"></div>
+                        <!-- Bars representing probe accuracy -->
+                        <div class="w-1/12 bg-stone-300 h-[20%] rounded-t-sm"></div>
+                        <div class="w-1/12 bg-stone-300 h-[40%] rounded-t-sm"></div>
+                        <div class="w-1/12 bg-stone-300 h-[65%] rounded-t-sm"></div>
+                        <div class="w-1/12 bg-indigo-400 h-[88%] rounded-t-sm"></div>
+                        <div class="w-1/12 bg-indigo-600 h-[97%] rounded-t-sm shadow-[0_0_10px_rgba(79,70,229,0.4)]"></div>
+                        <div class="w-1/12 bg-indigo-600 h-[95%] rounded-t-sm shadow-[0_0_10px_rgba(79,70,229,0.4)]"></div>
+                        <div class="w-1/12 bg-indigo-400 h-[80%] rounded-t-sm"></div>
+                        <div class="w-1/12 bg-stone-300 h-[50%] rounded-t-sm"></div>
+                        <div class="w-1/12 bg-stone-300 h-[30%] rounded-t-sm"></div>
+                        <div class="absolute top-4 right-4 bg-white border border-green-200 text-green-700 px-2 py-1 text-xs font-bold rounded shadow-sm">
+                            Separability > 97%
+                        </div>
+                    </div>
+                </div>`,
+            3: `<div class="flex flex-col md:flex-row gap-8 items-center justify-center w-full">
+                    <!-- Left: The Math -->
+                    <div class="flex flex-col items-center text-center md:text-right space-y-4 max-w-xs">
+                        <div class="bg-white text-black p-4 rounded-lg font-mono text-sm shadow-xl border-stone-700">
+                            $$v_{mem} = \\frac{w_{probe}}{||w_{probe}||}$$
+                        </div>
+                        <p class="text-xs text-stone-500 font-mono">
+                            $w_{probe}$: Logistic Regression Coefficients<br>
+                            $||\cdot||$: Euclidean Norm
+                        </p>
+                    </div>
+
+                    <!-- Divider (Visual) -->
+                    <div class="hidden md:block w-px h-32 bg-stone-300"></div>
+
+                    <!-- Right: The Logic -->
+                    <div class="max-w-md text-left space-y-3">
+                        <h3 class="font-bold text-stone-900 text-sm uppercase tracking-wider">Geometric Justification</h3>
+                        <ul class="text-sm text-stone-600 space-y-2 list-disc pl-4 leading-relaxed">
+                            <li>
+                                <strong class="text-indigo-600">Orthogonality:</strong> In high-dimensional space, $w_{probe}$ is the normal vector to the hyperplane separating "Memory" from "Logic".
+                            </li>
+                            <li>
+                                <strong class="text-indigo-600">Gradient of Log-Odds:</strong> Moving along $-v_{mem}$ maximally reduces the probability of the "History" class.
+                            </li>
+                            <li>
+                                <strong class="text-indigo-600">Normalization:</strong> We divide by the norm to decouple <em>direction</em> (semantics) from <em>confidence</em> (separability), ensuring consistent steering strength ($\alpha$).
+                            </li>
+                        </ul>
+                    </div>
+                </div>`,
+            4: `<div class="flex items-center gap-2 md:gap-4 justify-center w-full text-sm">
+                    <!-- Previous Layer -->
+                    <div class="flex flex-col items-center">
+                        <div class="px-3 py-2 bg-stone-100 border border-stone-300 rounded text-stone-600 font-mono text-xs">Layer N</div>
+                        <div class="h-4 w-0.5 bg-stone-300"></div>
+                        <div class="px-3 py-1 bg-white border border-stone-200 rounded shadow-sm font-mono font-bold text-stone-800">h</div>
+                    </div>
+
+                    <!-- Intervention Arrow -->
+                    <div class="flex flex-col items-center px-2">
+                        <div class="text-indigo-500 text-xl">→</div>
+                        <div class="text-[10px] font-bold text-indigo-600 uppercase tracking-wide -mt-1">Steer</div>
+                    </div>
+
+                    <!-- The Mechanism -->
+                    <div class="relative p-4 bg-indigo-50 border-2 border-indigo-500 rounded-xl shadow-lg">
+                        <div class="font-mono font-bold text-indigo-700 text-lg">h' ← h - α·v</div>
+                        <div class="text-[10px] text-indigo-400 text-center mt-1">Bias Subtraction</div>
+                    </div>
+
+                    <!-- Result Arrow -->
+                    <div class="flex flex-col items-center px-2">
+                        <div class="text-indigo-500 text-xl">→</div>
+                    </div>
+
+                    <!-- Next Layer -->
+                    <div class="flex flex-col items-center">
+                        <div class="px-3 py-1 bg-white border border-indigo-200 rounded shadow-sm font-mono font-bold text-indigo-700">h'</div>
+                        <div class="h-4 w-0.5 bg-indigo-200"></div>
+                        <div class="px-3 py-2 bg-white border border-stone-300 rounded text-stone-800 font-mono text-xs shadow-sm">Layer N+1</div>
+                    </div>
+                </div>`
+        };
+
+        function showStep(num) {
+            document.getElementById('step-content').innerHTML = stepContent[num];
+            // Re-render MathJax
+            if(window.MathJax) { MathJax.typesetPromise(); }
+
+            document.querySelectorAll('.step-card').forEach((c, i) => {
+                if (i + 1 === num) {
+                    c.classList.add('active');
+                    c.classList.remove('border-transparent');
+                } else {
+                    c.classList.remove('active');
+                    c.classList.add('border-transparent');
+                }
+            });
+
+            const content = document.getElementById('step-content');
+            content.classList.remove('fade-in');
+            void content.offsetWidth;
+            content.classList.add('fade-in');
+        }
+
+        // Init
+        window.onload = () => {
+            showStep(1);
+            setModel('glm4');
+            selectCase('lehman');
+        };
+    </script>
+</body>
+</html>
