@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Tuple
 
 
-def build_financial_contrast_pairs(multiplier: int = 3) -> Tuple[List[str], List[str]]:
+def build_financial_contrast_pairs(multiplier: int = 1) -> Tuple[List[str], List[str]]:
     """
     Constructs paired prompts (Memory vs Logic) describing the same event.
 

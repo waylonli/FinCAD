@@ -185,7 +185,10 @@ def main():
             controller.load_vectors(args.vector_cache)
         else:
             mem, gen = build_financial_contrast_pairs()
-            scan_settings = ScanSettings(layer_step=2 if adapter.num_layers > 40 else 1)
+            scan_settings = ScanSettings(
+                layer_step=2 if adapter.num_layers > 40 else 1,
+                top_k=4,
+            )
             controller.scan_layers(mem, gen, settings=scan_settings)
             controller.fit_steering_vectors(mem, gen)
             if args.vector_cache:

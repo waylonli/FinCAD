@@ -21,6 +21,7 @@ class ScanSettings:
     max_scan_samples: int = 24  # samples to keep per class during scan
     val_split: float = 0.3
     accuracy_threshold: float = 0.03  # tolerance below best layer
+    top_k: Optional[int] = None  # if set, keep only top-k layers by accuracy
 
 
 class SteeringController:
@@ -68,6 +69,8 @@ class SteeringController:
         """
         Finds layers whose activations separate Memory vs Logic prompts.
         Returns layers within `accuracy_threshold` of the best probe accuracy.
+
+        FIXED VERSION: Uses separate prompt pairs for training vs validation to avoid data leakage.
         """
         if settings is None:
             settings = ScanSettings()
@@ -81,22 +84,54 @@ class SteeringController:
         max_acc = -1.0
         layer_scores: Dict[int, float] = {}
 
-        scan_mem = list(memory_prompts)[: settings.max_scan_samples]
-        scan_gen = list(generic_prompts)[: settings.max_scan_samples]
-        y = np.array([1] * len(scan_mem) + [0] * len(scan_gen))
+        # Create prompt pairs and split at the PAIR level to avoid data leakage
+        all_pairs = list(zip(memory_prompts, generic_prompts))
+
+        # Limit to max_scan_samples if specified
+        if settings.max_scan_samples and len(all_pairs) > settings.max_scan_samples:
+            all_pairs = all_pairs[:settings.max_scan_samples]
+
+        # Split into train and validation sets at the PAIR level
+        train_pairs, val_pairs = train_test_split(
+            all_pairs,
+            test_size=settings.val_split,
+            stratify=None,  # No stratification needed since each pair has one of each type
+            random_state=42
+        )
+
+        # Separate into memory/generic for training and validation
+        train_mem = [pair[0] for pair in train_pairs]
+        train_gen = [pair[1] for pair in train_pairs]
+        val_mem = [pair[0] for pair in val_pairs]
+        val_gen = [pair[1] for pair in val_pairs]
+
+        print(f"Training set: {len(train_pairs)} pairs, Validation set: {len(val_pairs)} pairs")
 
         for layer in check_layers:
             try:
-                mem_acts = [self._capture_activation(p, layer).cpu().numpy() for p in scan_mem]
-                gen_acts = [self._capture_activation(p, layer).cpu().numpy() for p in scan_gen]
-                X = np.concatenate([mem_acts, gen_acts])
+                # Capture activations for TRAINING set
+                train_mem_acts = [self._capture_activation(p, layer).cpu().numpy() for p in train_mem]
+                train_gen_acts = [self._capture_activation(p, layer).cpu().numpy() for p in train_gen]
+                X_train = np.concatenate([train_mem_acts, train_gen_acts])
+                y_train = np.array([1] * len(train_mem_acts) + [0] * len(train_gen_acts))
 
-                X_train, X_val, y_train, y_val = train_test_split(
-                    X, y, test_size=settings.val_split, stratify=y, random_state=42
+                # Capture activations for VALIDATION set (completely different prompts)
+                val_mem_acts = [self._capture_activation(p, layer).cpu().numpy() for p in val_mem]
+                val_gen_acts = [self._capture_activation(p, layer).cpu().numpy() for p in val_gen]
+                X_val = np.concatenate([val_mem_acts, val_gen_acts])
+                y_val = np.array([1] * len(val_mem_acts) + [0] * len(val_gen_acts))
+
+                # Train classifier on training set
+                clf = LogisticRegression(
+                    random_state=42,
+                    solver="liblinear",
+                    max_iter=500,
+                    C=0.1,
+                    class_weight="balanced",
                 )
-                clf = LogisticRegression(random_state=42, solver="liblinear", max_iter=500)
                 clf.fit(X_train, y_train)
 
+                # Validate on completely different prompts
                 acc = clf.score(X_val, y_val)
                 layer_scores[layer] = acc
                 print(f"Layer {layer:02d}: probe val acc = {acc:.2%}")
@@ -105,6 +140,9 @@ class SteeringController:
                 print(f"Skipping layer {layer}: {exc}")
 
         winners = [l for l, score in layer_scores.items() if score >= max_acc - settings.accuracy_threshold]
+        winners.sort(key=lambda l: layer_scores[l], reverse=True)
+        if settings.top_k is not None:
+            winners = winners[: settings.top_k]
         winners.sort()
         print(f"Selected layers: {winners} (best={max_acc:.2%}, tol={settings.accuracy_threshold:.2%})")
 
@@ -117,7 +155,12 @@ class SteeringController:
         generic_prompts: Sequence[str],
         layers: Optional[Iterable[int]] = None,
     ) -> Dict[int, torch.Tensor]:
-        """Train a probe per layer and store normalized steering vectors."""
+        """
+        Train a probe per layer and store normalized steering vectors.
+
+        FIXED VERSION: Uses all available data for final vector extraction,
+        but reports validation accuracy using proper train/val split.
+        """
         if layers is None:
             layers = self.layer_ids
         layers = list(layers)
@@ -125,26 +168,55 @@ class SteeringController:
             raise ValueError("No layers provided for steering vector extraction.")
 
         print(f"Fitting steering vectors for layers: {layers}")
-        y = np.concatenate([np.ones(len(memory_prompts)), np.zeros(len(generic_prompts))])
+
+        # Create prompt pairs for proper validation
+        all_pairs = list(zip(memory_prompts, generic_prompts))
+
+        # Use 80% for training, 20% for validation
+        train_pairs, val_pairs = train_test_split(
+            all_pairs,
+            test_size=0.2,
+            random_state=42
+        )
+
+        train_mem = [pair[0] for pair in train_pairs]
+        train_gen = [pair[1] for pair in train_pairs]
+        val_mem = [pair[0] for pair in val_pairs]
+        val_gen = [pair[1] for pair in val_pairs]
 
         for layer in layers:
             print(f"Layer {layer}: collecting activations...")
-            mem_acts = [self._capture_activation(p, layer) for p in memory_prompts]
-            gen_acts = [self._capture_activation(p, layer) for p in generic_prompts]
 
-            X_mem = torch.stack(mem_acts).cpu().numpy()
-            X_gen = torch.stack(gen_acts).cpu().numpy()
-            X = np.concatenate([X_mem, X_gen])
+            # Capture activations for training and validation
+            train_mem_acts = [self._capture_activation(p, layer) for p in train_mem]
+            train_gen_acts = [self._capture_activation(p, layer) for p in train_gen]
+            val_mem_acts = [self._capture_activation(p, layer) for p in val_mem]
+            val_gen_acts = [self._capture_activation(p, layer) for p in val_gen]
 
+            # Prepare training data (for final vector extraction)
+            X_train = torch.stack(train_mem_acts + train_gen_acts).cpu().numpy()
+            y_train = np.array([1] * len(train_mem_acts) + [0] * len(train_gen_acts))
+
+            # Prepare validation data
+            X_val = torch.stack(val_mem_acts + val_gen_acts).cpu().numpy()
+            y_val = np.array([1] * len(val_mem_acts) + [0] * len(val_gen_acts))
+
+            # Train probe on training data
             probe = LogisticRegression(
                 random_state=42,
                 solver="liblinear",
                 class_weight="balanced",
                 max_iter=500,
+                C=0.1,
             )
-            probe.fit(X, y)
-            print(f"  Train accuracy: {probe.score(X, y):.2%}")
+            probe.fit(X_train, y_train)
 
+            # Report validation accuracy (not training accuracy)
+            val_acc = probe.score(X_val, y_val)
+            train_acc = probe.score(X_train, y_train)
+            print(f"  Train accuracy: {train_acc:.2%}, Validation accuracy: {val_acc:.2%}")
+
+            # Extract steering vector from trained probe
             vector = torch.tensor(probe.coef_[0], dtype=torch.float32, device=self.adapter.device)
             vector = vector / torch.norm(vector)
             self.steering_vectors[layer] = vector

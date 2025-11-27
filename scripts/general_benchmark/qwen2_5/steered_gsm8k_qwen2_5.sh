@@ -1,3 +1,13 @@
+#!/bin/bash
+
+#$ -l h_rt=6:00:00
+#$ -l h_vmem=128G
+#$ -q gpu
+#$ -l gpu=1
+#$ -P inf_fincomputing
+#$ -o /exports/eddie/scratch/s1891340/look-ahead-bias/logs/server-logs/steered-gsm8k-qwen2_5.out
+#$ -e /exports/eddie/scratch/s1891340/look-ahead-bias/logs/server-logs/steered-gsm8k-qwen2_5.err
+
 cd /exports/eddie/scratch/s1891340/look-ahead-bias
 source ~/.bashrc
 source /exports/csce/eddie/inf/groups/FinComputing/waylon/venv/look-ahead/bin/activate
