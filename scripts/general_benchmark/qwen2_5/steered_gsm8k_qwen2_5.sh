@@ -22,4 +22,6 @@ uv run --active --no-sync python benchmark/gsm8k/eval.py \
   --batch-size 16 \
   --steer-strength -10.0 \
   --temperature 0.0 \
+  --decoding-mode steering \
+  --steering-profile entity_defocus \
   --results-file logs/results/steered_gsm8k_qwen2_5_run.jsonl |& tee logs/steered_gsm8k_qwen2_5_run.log

@@ -22,6 +22,7 @@ uv run --active --no-sync python benchmark/mmlu_pro/eval.py \
   --batch-size 16 \
   --steer-strength -10.0 \
   --temperature 0.0 \
+  --decoding-mode steering \
   --split validation \
   --results-file logs/results/steered_mmlu_pro_qwen2_5_run.jsonl |& tee logs/steered_mmlu_pro_qwen2_5_run.log
 

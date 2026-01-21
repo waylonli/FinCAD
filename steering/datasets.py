@@ -5,10 +5,7 @@ from typing import List, Tuple
 
 def build_financial_contrast_pairs(multiplier: int = 1) -> Tuple[List[str], List[str]]:
     """
-    Constructs paired prompts (Memory vs Logic) describing the same event.
-
-    - Memory prompts explicitly mention historical entities/dates.
-    - Logic prompts describe the underlying mechanism without revealing the answer.
+    Recall-suppression profile: Memory vs Logic prompts on financial events.
     """
     pairs = [
         # 2008 Crisis / funding stress
@@ -100,3 +97,71 @@ def build_financial_contrast_pairs(multiplier: int = 1) -> Tuple[List[str], List
     mem = [p[0] for p in pairs] * multiplier
     gen = [p[1] for p in pairs] * multiplier
     return mem, gen
+
+
+def build_entity_defocus_pairs(multiplier: int = 1) -> Tuple[List[str], List[str]]:
+    """
+    Entity-defocus profile: steer away from recalling specific company facts.
+    Memory prompts: include tickers/names (AAPL, MSFT, AMZN, TSLA, NVDA, GOOG).
+    Logic prompts: abstract away the entity to generic descriptors.
+    """
+    pairs = [
+        (
+            "What was AAPL's share price movement after the iPhone 12 launch?",
+            "How do consumer electronics stocks typically react after a major product launch?",
+        ),
+        (
+            "How did MSFT perform after announcing its 2024 earnings?",
+            "How do large-cap software firms typically react after strong quarterly earnings?",
+        ),
+        (
+            "What happened to AMZN stock during the 2020 holiday season?",
+            "How do e-commerce platforms usually trade during the holiday shopping season?",
+        ),
+        (
+            "How did TSLA's valuation change after its 2020 stock split?",
+            "What often happens to high-growth stocks after a stock split announcement?",
+        ),
+        (
+            "How did NVDA react after releasing its latest GPU lineup?",
+            "How do semiconductor designers typically trade after announcing a new GPU generation?",
+        ),
+        (
+            "What was GOOG's revenue growth after the 2023 Q2 report?",
+            "How do large search/ads platforms usually react to an upside revenue surprise?",
+        ),
+        (
+            "How did META stock move after its 2022 layoffs announcement?",
+            "How do large social media companies typically trade after cost-cutting announcements?",
+        ),
+        (
+            "What happened to NFLX after its 2022 subscriber miss?",
+            "How do subscription streaming services typically react after missing subscriber targets?",
+        ),
+        (
+            "How did JPM stock move after the Fed stress test results?",
+            "How do large banks typically react after positive stress test results?",
+        ),
+        (
+            "What happened to BABA stock when regulations tightened in China in 2021?",
+            "How do large tech platforms typically react to new regulatory crackdowns?",
+        ),
+    ]
+
+    mem = [p[0] for p in pairs] * multiplier
+    gen = [p[1] for p in pairs] * multiplier
+    return mem, gen
+
+
+def get_contrast_pairs(profile: str, multiplier: int = 1) -> Tuple[List[str], List[str]]:
+    """
+    Returns (memory_prompts, generic_prompts) for a named steering profile.
+    Profiles:
+    - "recall_suppression": steer away from look-ahead recall (default).
+    - "entity_defocus": steer away from entity-specific recall (tickers/names).
+    """
+    profile = profile.lower()
+    if profile == "entity_defocus":
+        return build_entity_defocus_pairs(multiplier=multiplier)
+    # default
+    return build_financial_contrast_pairs(multiplier=multiplier)

@@ -9,7 +9,11 @@ This package provides:
 """
 
 from .adapters import AdapterInitConfig, BaseLMAdapter, TransformersAdapter, VLLMAdapter
-from .datasets import build_financial_contrast_pairs
+from .datasets import (
+    build_financial_contrast_pairs,
+    build_entity_defocus_pairs,
+    get_contrast_pairs,
+)
 from .steering import ScanSettings, SteeringController
 
 __all__ = [
@@ -20,4 +24,6 @@ __all__ = [
     "ScanSettings",
     "SteeringController",
     "build_financial_contrast_pairs",
+    "build_entity_defocus_pairs",
+    "get_contrast_pairs",
 ]
