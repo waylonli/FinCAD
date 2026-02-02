@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prior-text", type=str, default=None, help="Custom prior prompt text when --prior-mode=custom")
     parser.add_argument("--alpha", type=float, default=1.0, help="CAD alpha")
     parser.add_argument("--top-p", type=float, default=1.0, help="Top-p filtering")
-    parser.add_argument("--max-new-tokens", type=int, default=256, help="Generation length")
+    parser.add_argument("--max-new-tokens", type=int, default=512, help="Generation length")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
     return parser.parse_args()
 
