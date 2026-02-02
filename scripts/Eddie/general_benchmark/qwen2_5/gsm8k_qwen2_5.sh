@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#$ -l h_rt=6:00:00
+#$ -l h_rt=10:00:00
 #$ -l h_vmem=128G
 #$ -q gpu
 #$ -l gpu=1
@@ -14,7 +14,7 @@ source /exports/csce/eddie/inf/groups/FinComputing/waylon/venv/look-ahead/bin/ac
 export PYTHONPATH=PYTHONPATH:./
 
 uv run --active --no-sync python benchmark/gsm8k/eval.py \
-  --model-name Qwen/Qwen2.5-14B-Instruct \
+  --model-name Qwen/Qwen2.5-7B-Instruct \
   --use-chat-template \
   --model-cache-dir ../pretrained_models \
   --dataset-cache-dir ./datasets \
