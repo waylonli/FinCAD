@@ -71,6 +71,20 @@ class HFFilingScorer:
         self.config = scoring_config
         self.calibrator = calibrator
         self.category_prompts = category_prompts or DEFAULT_CATEGORY_PROMPTS
+        self._stop_token_ids: Optional[list] = None
+
+    def _resolve_stop_token_ids(self) -> Optional[list]:
+        """Resolve the token ID for ``}`` to enable early JSON stop."""
+        if self._stop_token_ids is not None:
+            return self._stop_token_ids
+        try:
+            ids = self.decoder.tokenizer.encode("}", add_special_tokens=False)
+            if ids:
+                self._stop_token_ids = [ids[-1]]
+                return self._stop_token_ids
+        except Exception:
+            pass
+        return None
 
     def score_filing(
         self,
@@ -99,11 +113,15 @@ class HFFilingScorer:
             else:
                 alpha = self.config.cad_alpha
 
+        # Early-stop on "}" so we don't waste tokens after the JSON object closes
+        stop_ids = self._resolve_stop_token_ids()
+
         cad_config = CADConfig(
             alpha=alpha,
             top_p=self.config.cad_top_p,
             temperature=self.config.temperature,
             max_new_tokens=self.config.max_new_tokens,
+            stop_token_ids=stop_ids,
         )
 
         category_scores: Dict[str, float] = {}

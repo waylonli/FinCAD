@@ -74,6 +74,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--model-name", type=str, default=None, help="HuggingFace model id (required for on_demand)")
     g.add_argument("--model-cache-dir", type=str, default="../pretrained_models")
     g.add_argument("--use-chat-template", action="store_true")
+    g.add_argument("--attn-implementation", type=str, default=None,
+                   help="Attention implementation, e.g. 'flash_attention_2'.")
 
     # Decoding
     g = p.add_argument_group("Decoding")
@@ -227,6 +229,25 @@ def main(argv=None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _auto_score_cache_path(args: argparse.Namespace) -> Path:
+    """Build a cache filename that distinguishes model, decoding mode, and CAD settings.
+
+    Examples:
+        results/backtest/scores_qwen2.5-7b-instruct_baseline.csv
+        results/backtest/scores_qwen2.5-7b-instruct_cad_a1.5_bias_amplified.csv
+        results/backtest/scores_phi-3-mini_cad_a2.0_no_context_calibrated.csv
+    """
+    model_short = args.model_name.split("/")[-1].lower() if args.model_name else "unknown"
+    parts = [model_short, args.decoding_mode]
+    if args.decoding_mode == "cad":
+        parts.append(f"a{args.cad_alpha}")
+        parts.append(args.cad_prior_mode)
+        if args.use_calibrator:
+            parts.append("calibrated")
+    name = "scores_" + "_".join(parts) + ".csv"
+    return Path("results/backtest") / name
+
+
 def _run_on_demand_scoring(
     args: argparse.Namespace,
     data_root: Path,
@@ -243,6 +264,7 @@ def _run_on_demand_scoring(
             model_name=args.model_name,
             use_chat_template=args.use_chat_template,
             cache_dir=args.model_cache_dir,
+            attn_implementation=args.attn_implementation,
         )
     )
 
@@ -289,7 +311,8 @@ def _run_on_demand_scoring(
 
     logger.info("Scoring %d filings ...", len(filings))
 
-    cache_path = Path(args.score_cache_path) if args.score_cache_path else None
+    cache_path = Path(args.score_cache_path) if args.score_cache_path else _auto_score_cache_path(args)
+    logger.info("Score cache: %s", cache_path)
     score_df = scorer.score_filings_to_dataframe(filings, cache_path=cache_path)
     logger.info("Scored %d filings", len(score_df))
     return score_df

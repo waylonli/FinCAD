@@ -14,6 +14,7 @@ class AdapterInitConfig:
     use_chat_template: bool = False
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     cache_dir: Optional[str] = None
+    attn_implementation: Optional[str] = None  # e.g. "flash_attention_2"
 
 
 class BaseLMAdapter:
@@ -67,11 +68,16 @@ class TransformersAdapter(BaseLMAdapter):
             config.model_name,
             cache_dir=config.cache_dir,
         )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            config.model_name,
+        load_kwargs: Dict[str, Any] = dict(
             dtype=dtype,
             device_map="auto" if config.device == "cuda" else None,
             cache_dir=config.cache_dir,
+        )
+        if config.attn_implementation:
+            load_kwargs["attn_implementation"] = config.attn_implementation
+        self.model = AutoModelForCausalLM.from_pretrained(
+            config.model_name,
+            **load_kwargs,
         )
 
         if self._tokenizer.pad_token is None:
