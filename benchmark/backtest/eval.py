@@ -89,6 +89,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--temperature", type=float, default=0.0)
     g.add_argument("--max-new-tokens", type=int, default=512)
 
+    # Chunking
+    g = p.add_argument_group("Chunking")
+    g.add_argument("--chunk-size", type=int, default=8192,
+                   help="Max filing text tokens per chunk (default: 8192)")
+    g.add_argument("--chunk-overlap", type=int, default=256,
+                   help="Overlap tokens between consecutive chunks (default: 256)")
+
     # Calibrator
     g = p.add_argument_group("Calibrator")
     g.add_argument("--use-calibrator", action="store_true")
@@ -294,6 +301,8 @@ def _run_on_demand_scoring(
         use_calibrator=args.use_calibrator,
         calibrator_alpha_min=args.calibrator_alpha_min,
         calibrator_alpha_max=args.calibrator_alpha_max,
+        chunk_size=args.chunk_size,
+        chunk_overlap=args.chunk_overlap,
     )
 
     scorer = HFFilingScorer(decoder, scoring_config, calibrator=calibrator)
@@ -303,11 +312,18 @@ def _run_on_demand_scoring(
     logger.info("Collecting filings from %s", reports_root)
     filings_map = collect_filing_paths(reports_root, symbols)
 
+    from tqdm import tqdm
+
+    all_paths = [
+        (symbol, fpath, ts)
+        for symbol, paths in filings_map.items()
+        for fpath, ts in paths
+    ]
+    logger.info("Reading %d filings from disk ...", len(all_paths))
     filings: list[tuple[str, str, pd.Timestamp]] = []
-    for symbol, paths in filings_map.items():
-        for fpath, ts in paths:
-            text = read_filing(fpath, max_chars=args.max_filing_chars)
-            filings.append((text, symbol, ts))
+    for symbol, fpath, ts in tqdm(all_paths, desc="Reading filings", unit="file"):
+        text = read_filing(fpath, max_chars=args.max_filing_chars)
+        filings.append((text, symbol, ts))
 
     logger.info("Scoring %d filings ...", len(filings))
 

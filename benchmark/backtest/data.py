@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 MAG7_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
-DEFAULT_DATA_ROOT = Path("dataset/backtest-data/data")
+DEFAULT_DATA_ROOT = Path("dataset/backtest-data/")
 
 MAX_ABS_DAILY_RETURN = 0.5
 
@@ -282,14 +282,37 @@ def read_filing(path: PathLike, max_chars: int = 60_000) -> str:
     """Read a filing from disk, truncating to *max_chars*.
 
     Supports plain text and PDF (via ``PyPDF2`` / ``pypdf`` if available).
+    For PDFs, the extracted text is cached as a ``.txt`` file next to the
+    original so that subsequent reads skip PDF parsing entirely.
     """
     path = Path(path)
     if path.suffix.lower() == ".pdf":
-        return _read_pdf(path, max_chars)
+        return _read_pdf_cached(path, max_chars)
     return path.read_text(encoding="utf-8", errors="replace")[:max_chars]
 
 
-def _read_pdf(path: Path, max_chars: int) -> str:
+def _read_pdf_cached(path: Path, max_chars: int) -> str:
+    """Read a PDF, caching the full extracted text as a sibling ``.txt``."""
+    txt_path = path.with_suffix(".txt")
+
+    # Use cached text if it exists and is newer than the PDF
+    if txt_path.exists() and txt_path.stat().st_mtime >= path.stat().st_mtime:
+        return txt_path.read_text(encoding="utf-8", errors="replace")[:max_chars]
+
+    # Parse PDF
+    text = _extract_pdf_text(path)
+
+    # Cache the full extracted text for future runs
+    try:
+        txt_path.write_text(text, encoding="utf-8")
+        logger.info("Cached PDF text to %s (%d chars)", txt_path.name, len(text))
+    except OSError as exc:
+        logger.warning("Could not cache PDF text to %s: %s", txt_path, exc)
+
+    return text[:max_chars]
+
+
+def _extract_pdf_text(path: Path) -> str:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError:
@@ -302,11 +325,7 @@ def _read_pdf(path: Path, max_chars: int) -> str:
             )
     reader = PdfReader(str(path))
     texts: List[str] = []
-    total = 0
     for page in reader.pages:
         text = page.extract_text() or ""
         texts.append(text)
-        total += len(text)
-        if total >= max_chars:
-            break
-    return "".join(texts)[:max_chars]
+    return "".join(texts)
