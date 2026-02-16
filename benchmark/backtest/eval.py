@@ -110,7 +110,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     # Backtest
     g = p.add_argument_group("Backtest")
-    g.add_argument("--symbols", type=str, default="mag7", help="Comma-separated tickers or 'mag7'")
+    g.add_argument("--symbols", type=str, default="all", help="Comma-separated tickers, 'mag7', or 'all' (scan reports dir)")
     g.add_argument("--start-year", type=int, default=2014)
     g.add_argument("--end-year", type=int, default=2024)
     g.add_argument("--top-quantile", type=float, default=0.05)
@@ -149,11 +149,17 @@ def main(argv=None) -> None:
     data_root = Path(args.data_root)
 
     # ---- Resolve symbols ----
-    if args.symbols.lower() == "mag7":
+    if args.symbols.lower() == "all":
+        reports_root = data_root / args.reports_dir
+        symbols = sorted([
+            d.name.upper() for d in reports_root.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+        ])
+    elif args.symbols.lower() == "mag7":
         symbols = MAG7_TICKERS
     else:
         symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    logger.info("Symbols: %s", symbols)
+    logger.info("Symbols (%d): %s", len(symbols), symbols)
 
     # ---- Load price data ----
     price_path = data_root / args.price_file
@@ -319,11 +325,19 @@ def _run_on_demand_scoring(
         for symbol, paths in filings_map.items()
         for fpath, ts in paths
     ]
-    logger.info("Reading %d filings from disk ...", len(all_paths))
     filings: list[tuple[str, str, pd.Timestamp]] = []
-    for symbol, fpath, ts in tqdm(all_paths, desc="Reading filings", unit="file"):
+    skipped = 0
+    pbar = tqdm(all_paths, desc="Reading filings", unit="file")
+    for symbol, fpath, ts in pbar:
+        pbar.set_description(f"Reading {symbol} {fpath.stem}")
         text = read_filing(fpath, max_chars=args.max_filing_chars)
+        if not text.strip():
+            logger.warning("Empty/unreadable filing %s – skipping", fpath)
+            skipped += 1
+            continue
         filings.append((text, symbol, ts))
+    if skipped:
+        logger.warning("Skipped %d unreadable filings out of %d total", skipped, len(all_paths))
 
     logger.info("Scoring %d filings ...", len(filings))
 

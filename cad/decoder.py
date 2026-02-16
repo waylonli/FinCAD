@@ -51,6 +51,7 @@ class ContextAwareDecoder:
             outputs.append(self._generate_one(ctx, pri, config))
         return outputs[0] if single else outputs
 
+    @torch.inference_mode()
     def _generate_one(self, context_prompt: str, prior_prompt: str, config: CADConfig) -> str:
         ctx_inputs = self._encode(context_prompt)
         ctx_ids = ctx_inputs["input_ids"]

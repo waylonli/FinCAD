@@ -305,7 +305,6 @@ def _read_pdf_cached(path: Path, max_chars: int) -> str:
     # Cache the full extracted text for future runs
     try:
         txt_path.write_text(text, encoding="utf-8")
-        logger.info("Cached PDF text to %s (%d chars)", txt_path.name, len(text))
     except OSError as exc:
         logger.warning("Could not cache PDF text to %s: %s", txt_path, exc)
 
@@ -323,9 +322,20 @@ def _extract_pdf_text(path: Path) -> str:
                 "pypdf or PyPDF2 is required to read PDF filings. "
                 "Install one with: pip install pypdf"
             )
-    reader = PdfReader(str(path))
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        reader = PdfReader(str(path))
+    except Exception as exc:
+        logger.warning("Cannot open PDF %s: %s", path, exc)
+        return ""
     texts: List[str] = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
+    for i, page in enumerate(reader.pages):
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:
+            logger.warning("Skipping page %d of %s: %s", i, path.name, exc)
+            continue
         texts.append(text)
     return "".join(texts)
