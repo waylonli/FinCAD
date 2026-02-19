@@ -258,7 +258,8 @@ def evaluate_split(
                 results_file.write(json.dumps(record) + "\n")
 
     for idx, sample in enumerate(tqdm(samples, total=total_samples, desc=f"Evaluating {subset_name}")):
-        options = sample.get("choices") or []
+        raw_choices = sample.get("choices")
+        options = list(raw_choices) if raw_choices is not None and len(raw_choices) > 0 else []
         if not options:
             continue
         query = sample.get("query", "")

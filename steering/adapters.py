@@ -4,8 +4,19 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import inspect
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+def _supports_enable_thinking(tokenizer) -> bool:
+    """Check if a tokenizer's chat template accepts enable_thinking."""
+    try:
+        sig = inspect.signature(tokenizer.apply_chat_template)
+        return "enable_thinking" in sig.parameters
+    except (ValueError, TypeError):
+        return False
 
 
 @dataclass
@@ -117,8 +128,7 @@ class TransformersAdapter(BaseLMAdapter):
             conversations = [[{"role": "user", "content": prompt}]]
         else:
             conversations = [[{"role": "user", "content": p}] for p in prompt]
-        return self._tokenizer.apply_chat_template(
-            conversations,
+        kwargs: Dict[str, Any] = dict(
             tokenize=True,
             add_generation_prompt=True,
             padding=True,
@@ -126,6 +136,9 @@ class TransformersAdapter(BaseLMAdapter):
             return_tensors="pt",
             return_dict=True,
         )
+        if _supports_enable_thinking(self._tokenizer):
+            kwargs["enable_thinking"] = False
+        return self._tokenizer.apply_chat_template(conversations, **kwargs)
 
     def tokenize(self, prompt) -> Dict[str, torch.Tensor]:
         """Prompt can be a string or list of strings."""

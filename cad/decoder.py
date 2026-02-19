@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Union
 
@@ -181,13 +182,19 @@ class ContextAwareDecoder:
     def _encode(self, prompt: str):
         if self.use_chat_template:
             messages = [{"role": "user", "content": prompt}]
-            encoded = self.tokenizer.apply_chat_template(
-                messages,
+            kwargs = dict(
                 tokenize=True,
                 add_generation_prompt=True,
                 return_tensors="pt",
                 return_dict=True,
             )
+            try:
+                sig = inspect.signature(self.tokenizer.apply_chat_template)
+                if "enable_thinking" in sig.parameters:
+                    kwargs["enable_thinking"] = False
+            except (ValueError, TypeError):
+                pass
+            encoded = self.tokenizer.apply_chat_template(messages, **kwargs)
         else:
             encoded = self.tokenizer(prompt, return_tensors="pt", padding=False)
         return {k: v.to(self.device) for k, v in encoded.items()}
