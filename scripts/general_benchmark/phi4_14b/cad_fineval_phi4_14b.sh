@@ -17,7 +17,7 @@ python benchmark/fineval/eval.py \
   --model-name /data/weixianli/models/phi-4 \
   --use-chat-template \
   --model-cache-dir ../pretrained_models \
-  --data-dir dataset/MMLU-Finance \
+  --dataset-cache-dir ./datasets \
   --subset all \
   --max-new-tokens 64 \
   --batch-size 16 \

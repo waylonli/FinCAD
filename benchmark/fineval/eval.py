@@ -1,7 +1,7 @@
 """
 FinEval evaluation (baseline vs steered vs CAD).
 
-Dataset: Salesforce/FinEval (local parquet files in dataset/MMLU-Finance)
+Dataset: waylonli/fineval-processed (HuggingFace)
 20 single-selection MC subsets covering CFA, credit risk, sentiment, ESG,
 stock movement, etc.
 
@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import IO, Iterable, List, Optional, Tuple
 
 import pandas as pd
+from datasets import load_dataset
 from tqdm import tqdm
 
 from cad import CADConfig, ContextAwareDecoder
@@ -133,14 +134,21 @@ def extract_prediction(text: str, num_options: int) -> Optional[str]:
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_subset(data_dir: str, subset: str) -> pd.DataFrame:
-    path = Path(data_dir) / f"{subset}.parquet"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Parquet file not found: {path}. "
-            f"Run  python scripts/download_fineval.py --output-dir {data_dir}  first."
+def load_fineval(cache_dir: str) -> pd.DataFrame:
+    """Load the full fineval-processed dataset from HuggingFace."""
+    ds = load_dataset("waylonli/fineval-processed", split="train", cache_dir=cache_dir)
+    return ds.to_pandas()
+
+
+def load_subset(full_df: pd.DataFrame, subset: str) -> pd.DataFrame:
+    """Filter the full dataframe to a single subset."""
+    sub = full_df[full_df["subset"] == subset]
+    if sub.empty:
+        available = sorted(full_df["subset"].unique())
+        raise ValueError(
+            f"Subset '{subset}' not found. Available: {available}"
         )
-    return pd.read_parquet(path)
+    return sub
 
 
 # ---------------------------------------------------------------------------
@@ -284,17 +292,14 @@ def evaluate_split(
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    repo_root = Path(__file__).resolve().parents[2]
-    default_data_dir = repo_root / "dataset" / "MMLU-Finance"
-
     parser = argparse.ArgumentParser(
         description="Evaluate FinEval MC subsets: baseline vs steered vs CAD."
     )
     # FinEval-specific
     parser.add_argument("--subset", type=str, default="all",
                         help="Subset name or 'all' (default: all)")
-    parser.add_argument("--data-dir", type=str, default=str(default_data_dir),
-                        help="Path to parquet directory")
+    parser.add_argument("--dataset-cache-dir", type=str, default="./datasets",
+                        help="Cache dir for dataset")
     # Standard (same as mmlu_pro)
     parser.add_argument("--model-name", type=str, required=True, help="HuggingFace model id")
     parser.add_argument("--model-cache-dir", type=str, default="../pretrained_models",
@@ -373,6 +378,13 @@ def main():
         print("Running context-aware decoding (CAD).")
 
     # ------------------------------------------------------------------
+    # Load dataset from HuggingFace
+    # ------------------------------------------------------------------
+    print(f"Loading fineval-processed from HuggingFace (cache: {args.dataset_cache_dir})...")
+    full_df = load_fineval(args.dataset_cache_dir)
+    print(f"Loaded {len(full_df)} rows across {full_df['subset'].nunique()} subsets.")
+
+    # ------------------------------------------------------------------
     # Determine subsets to evaluate
     # ------------------------------------------------------------------
     if args.subset.lower() == "all":
@@ -400,7 +412,7 @@ def main():
             print(f"Subset: {subset_name}")
             print(f"{'=' * 60}")
 
-            df = load_subset(args.data_dir, subset_name)
+            df = load_subset(full_df, subset_name)
             total_samples = len(df) if args.max_samples is None else min(args.max_samples, len(df))
             samples = islice(df.to_dict("records"), total_samples)
 
