@@ -8,18 +8,18 @@ measure the honesty drop in returns.
 Usage examples
 --------------
 Precomputed scores (fast iteration):
-    python -m benchmark.backtest.eval \\
+    python -m benchmark.backtest.q_scores_eval.eval \\
         --score-mode precomputed \\
         --symbols mag7 --start-year 2014 --end-year 2024
 
 On-demand baseline:
-    python -m benchmark.backtest.eval \\
+    python -m benchmark.backtest.q_scores_eval.eval \\
         --model-name Qwen/Qwen2.5-7B-Instruct --use-chat-template \\
         --score-mode on_demand --decoding-mode baseline \\
         --symbols mag7 --start-year 2014 --end-year 2024
 
 On-demand CAD (bias-amplified prior):
-    python -m benchmark.backtest.eval \\
+    python -m benchmark.backtest.q_scores_eval.eval \\
         --model-name Qwen/Qwen2.5-7B-Instruct --use-chat-template \\
         --score-mode on_demand --decoding-mode cad \\
         --cad-alpha 1.5 --cad-prior-mode bias_amplified \\
