@@ -93,6 +93,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     g = p.add_argument_group("Output")
     g.add_argument("--results-file", default=None, help="Per-decision JSONL")
     g.add_argument("--summary-file", default=None, help="Summary JSON")
+    g.add_argument("--values-csv", default=None,
+                   help="Daily portfolio values CSV (date, strategy, buy_and_hold) "
+                   "for plotting backtesting curves")
 
     return p.parse_args(argv)
 
@@ -103,7 +106,13 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def load_price_data(path: str | Path, ticker: str) -> pd.DataFrame:
-    """Load and filter price data for a single ticker."""
+    """Load and filter price data for a single ticker.
+
+    If the CSV contains ``close``, ``adjusted_close``, and ``open`` but no
+    ``adjusted_open``, we derive it:  ``adjusted_open = open * (adjusted_close / close)``.
+    This ensures execution prices are on the same split-adjusted scale as
+    valuation prices.
+    """
     df = pd.read_csv(path, low_memory=False)
 
     # Normalise columns
@@ -115,7 +124,38 @@ def load_price_data(path: str | Path, ticker: str) -> pd.DataFrame:
     df = df[df["symbol"] == ticker.upper()].sort_values("date").reset_index(drop=True)
     if df.empty:
         raise ValueError(f"No price data found for {ticker} in {path}")
+
+    # Derive adjusted_open from the split/dividend adjustment factor
+    if (
+        "adjusted_open" not in df.columns
+        and {"open", "close", "adjusted_close"}.issubset(df.columns)
+    ):
+        adj_factor = df["adjusted_close"] / df["close"]
+        df["adjusted_open"] = df["open"] * adj_factor
+
     return df
+
+
+# ---------------------------------------------------------------------------
+# Commission model — Moomoo US standard fees
+# ---------------------------------------------------------------------------
+
+COMMISSION_PER_SHARE = 0.0049   # USD per share
+COMMISSION_MIN_ORDER = 0.99     # USD minimum per order
+
+
+def compute_commission(shares: int) -> float:
+    """Moomoo US equity commission: $0.0049/share, min $0.99/order."""
+    if shares <= 0:
+        return 0.0
+    return max(shares * COMMISSION_PER_SHARE, COMMISSION_MIN_ORDER)
+
+
+# ---------------------------------------------------------------------------
+# Risk-free rate — historical average
+# ---------------------------------------------------------------------------
+
+RF_ANNUAL = 0.03  # 3% annualised
 
 
 # ---------------------------------------------------------------------------
@@ -124,12 +164,13 @@ def load_price_data(path: str | Path, ticker: str) -> pd.DataFrame:
 
 
 class SimplePortfolio:
-    """Cash + shares of a single stock."""
+    """Cash + shares of a single stock, with commission tracking."""
 
     def __init__(self, initial_cash: float) -> None:
         self.cash = initial_cash
         self.shares = 0
         self.cost_basis = 0.0
+        self.total_commission = 0.0
 
     def buy(self, price: float, fraction: float = 1.0) -> int:
         """Buy shares using *fraction* of available cash. Returns shares bought."""
@@ -138,12 +179,21 @@ class SimplePortfolio:
         if qty <= 0:
             return 0
         cost = qty * price
-        # Update cost basis (weighted avg)
+        commission = compute_commission(qty)
+        if cost + commission > self.cash:
+            # Reduce qty to afford commission
+            qty = int((self.cash - COMMISSION_MIN_ORDER) // price)
+            if qty <= 0:
+                return 0
+            cost = qty * price
+            commission = compute_commission(qty)
+        # Update cost basis (weighted avg, inclusive of commission)
         total_shares = self.shares + qty
         if total_shares > 0:
-            self.cost_basis = (self.cost_basis * self.shares + cost) / total_shares
+            self.cost_basis = (self.cost_basis * self.shares + cost + commission) / total_shares
         self.shares = total_shares
-        self.cash -= cost
+        self.cash -= cost + commission
+        self.total_commission += commission
         return qty
 
     def sell(self, price: float, fraction: float = 1.0) -> int:
@@ -151,8 +201,11 @@ class SimplePortfolio:
         qty = int(self.shares * fraction)
         if qty <= 0:
             return 0
-        self.cash += qty * price
+        proceeds = qty * price
+        commission = compute_commission(qty)
+        self.cash += proceeds - commission
         self.shares -= qty
+        self.total_commission += commission
         if self.shares == 0:
             self.cost_basis = 0.0
         return qty
@@ -165,6 +218,7 @@ class SimplePortfolio:
             "cash": self.cash,
             "shares": self.shares,
             "cost_basis": self.cost_basis,
+            "total_commission": self.total_commission,
             "portfolio_value": self.value(price),
         }
 
@@ -177,7 +231,7 @@ class SimplePortfolio:
 def compute_metrics(
     values: pd.Series,
     initial_capital: float,
-    rf_annual: float = 0.0,
+    rf_annual: float = RF_ANNUAL,
 ) -> dict:
     """Compute standard performance metrics from a daily portfolio value series."""
     returns = values.pct_change().dropna()
@@ -219,12 +273,33 @@ def compute_metrics(
 # ---------------------------------------------------------------------------
 
 
-def buy_and_hold(price_series: pd.Series, initial_capital: float) -> pd.Series:
-    """Return daily portfolio values for a buy-and-hold strategy."""
-    first_price = price_series.iloc[0]
-    shares = int(initial_capital // first_price)
-    leftover = initial_capital - shares * first_price
-    return shares * price_series + leftover
+def buy_and_hold(
+    val_series: pd.Series,
+    initial_capital: float,
+    open_series: pd.Series | None = None,
+) -> pd.Series:
+    """Return daily portfolio values for a buy-and-hold strategy.
+
+    Buys at the first day's **open** (via *open_series*) for a fair comparison
+    with the LLM strategy which also executes at the open.  Moomoo commission
+    is deducted on the initial purchase.  Daily values are then
+    marked-to-market using *val_series* (adjusted_close).
+
+    If *open_series* is ``None``, falls back to buying at the first day's
+    adjusted_close (legacy behaviour).
+    """
+    if open_series is not None and len(open_series) > 0:
+        entry_price = open_series.iloc[0]
+    else:
+        entry_price = val_series.iloc[0]
+    shares = int(initial_capital // entry_price)
+    commission = compute_commission(shares)
+    # Reduce shares if commission makes it unaffordable
+    while shares > 0 and shares * entry_price + commission > initial_capital:
+        shares -= 1
+        commission = compute_commission(shares)
+    leftover = initial_capital - shares * entry_price - commission
+    return shares * val_series + leftover
 
 
 # ---------------------------------------------------------------------------
@@ -245,20 +320,37 @@ def run_single_stock_backtest(
 ) -> dict:
     """Run the single-stock backtest.
 
+    Timing convention (avoids intraday look-ahead):
+    - On each rebalance date the agent sees data up to the **previous close**
+      (``build_financial_summary`` uses ``date < rebal_date``).
+    - Trades are executed at the **next trading day's adjusted open** price
+      (split-consistent with ``adjusted_close``).
+    - Daily portfolio values are marked-to-market using ``adjusted_close``.
+
     Returns a dict with keys: strategy_metrics, benchmark_metrics,
     portfolio_values (list of {date, value}), decisions (list of dicts).
     """
-    pcol = "adjusted_close" if "adjusted_close" in price_df.columns else "close"
-    ts = price_df.set_index("date")[pcol]
-    ts = ts[start_date:end_date]
+    val_col = "adjusted_close" if "adjusted_close" in price_df.columns else "close"
+    # Prefer adjusted_open (split-consistent with adjusted_close); fall back
+    # to raw open, then to the valuation column.
+    if "adjusted_open" in price_df.columns:
+        exec_col = "adjusted_open"
+    elif "open" in price_df.columns:
+        exec_col = "open"
+    else:
+        exec_col = val_col
 
-    if ts.empty:
+    sub = price_df.set_index("date").sort_index()
+    ts_val = sub[val_col][start_date:end_date]           # for mark-to-market
+    ts_open = sub[exec_col][start_date:end_date]         # for execution
+
+    if ts_val.empty:
         raise ValueError(f"No price data for {ticker} in [{start_date}, {end_date}]")
 
-    # Build rebalance dates
+    trading_days = ts_val.index
+
+    # Build rebalance dates — snapped to actual trading days
     rebal_dates = pd.date_range(start_date, end_date, freq=rebalance_freq)
-    # Only keep dates that fall on or after actual trading days
-    trading_days = ts.index
     rebal_dates = [
         trading_days[trading_days.searchsorted(d)]
         for d in rebal_dates
@@ -266,58 +358,87 @@ def run_single_stock_backtest(
     ]
     rebal_set = set(rebal_dates)
 
+    # Map each rebalance date → next trading day (for execution)
+    day_list = list(trading_days)
+    day_pos = {d: i for i, d in enumerate(day_list)}
+    exec_date_map: dict[pd.Timestamp, pd.Timestamp] = {}
+    for rd in rebal_dates:
+        idx = day_pos[rd] + 1
+        if idx < len(day_list):
+            exec_date_map[rd] = day_list[idx]
+        # else: last day — no next day to execute, signal is dropped
+
     logger.info(
         "Backtest: %s from %s to %s — %d rebalance dates, %d trading days",
-        ticker, start_date, end_date, len(rebal_dates), len(ts),
+        ticker, start_date, end_date, len(rebal_dates), len(ts_val),
     )
 
     portfolio = SimplePortfolio(initial_capital)
     daily_values: list[dict] = []
     decisions: list[dict] = []
+    pending_signal: Optional[TradingSignal] = None
+    pending_rebal_date: Optional[pd.Timestamp] = None
+    pending_exec_date: Optional[pd.Timestamp] = None
     results_fh = None
     if results_file:
         Path(results_file).parent.mkdir(parents=True, exist_ok=True)
         results_fh = open(results_file, "w")
 
     try:
-        for date, price in ts.items():
-            # Check if today is a rebalance date
-            if date in rebal_set:
-                sig = agent.get_signal(ticker, date, price_df, decoding_mode=decoding_mode)
+        for date in trading_days:
+            val_price = ts_val[date]      # adjusted close — for valuation
+            open_price = ts_open[date]    # open — for execution
 
-                # Execute trade
+            # Execute pending trade at today's open
+            if pending_signal is not None and pending_exec_date == date:
+                sig = pending_signal
                 executed = 0
                 if sig.signal == "buy":
-                    executed = portfolio.buy(price)
+                    executed = portfolio.buy(open_price)
                 elif sig.signal == "sell":
-                    executed = portfolio.sell(price)
+                    executed = portfolio.sell(open_price)
 
                 record = {
-                    "date": str(date.date()),
+                    "decision_date": str(pending_rebal_date.date()),
+                    "execution_date": str(date.date()),
                     "ticker": ticker,
-                    "price": round(price, 2),
+                    "execution_price": round(open_price, 2),
                     "signal": sig.signal,
                     "confidence": sig.confidence,
                     "reasoning": sig.reasoning,
                     "alpha_used": sig.alpha_used,
                     "executed_shares": executed,
                     "decoding_mode": decoding_mode,
-                    **portfolio.summary(price),
+                    **portfolio.summary(val_price),
                 }
                 decisions.append(record)
 
                 logger.info(
-                    "[%s] %s %s  conf=%d  shares=%+d  value=$%,.0f  alpha=%.2f",
-                    date.date(), ticker, sig.signal.upper(), sig.confidence,
+                    "[%s] decide → [%s] exec  %s %s  conf=%d  shares=%+d  "
+                    "exec_price=$%.2f  value=$%.0f  alpha=%.2f",
+                    pending_rebal_date.date(), date.date(),
+                    ticker, sig.signal.upper(), sig.confidence,
                     executed if sig.signal == "buy" else -executed,
-                    portfolio.value(price), sig.alpha_used,
+                    open_price, portfolio.value(val_price), sig.alpha_used,
                 )
 
                 if results_fh:
                     results_fh.write(json.dumps(record, default=str) + "\n")
                     results_fh.flush()
 
-            daily_values.append({"date": date, "value": portfolio.value(price)})
+                pending_signal = None
+                pending_rebal_date = None
+                pending_exec_date = None
+
+            # Generate signal on rebalance date (sees data up to prev close)
+            if date in rebal_set and date in exec_date_map:
+                sig = agent.get_signal(ticker, date, price_df,
+                                       decoding_mode=decoding_mode)
+                pending_signal = sig
+                pending_rebal_date = date
+                pending_exec_date = exec_date_map[date]
+
+            daily_values.append({"date": date, "value": portfolio.value(val_price)})
 
     finally:
         if results_fh:
@@ -329,16 +450,26 @@ def run_single_stock_backtest(
         index=pd.DatetimeIndex([v["date"] for v in daily_values]),
         name="strategy",
     )
-    bnh_series = buy_and_hold(ts, initial_capital)
+    bnh_series = buy_and_hold(ts_val, initial_capital, open_series=ts_open)
+    bnh_series.name = "buy_and_hold"
 
     strategy_metrics = compute_metrics(val_series, initial_capital)
     benchmark_metrics = compute_metrics(bnh_series, initial_capital)
+
+    # Combine into a single DataFrame for easy export / plotting
+    values_df = pd.DataFrame({
+        "date": val_series.index,
+        "strategy": val_series.values,
+        "buy_and_hold": bnh_series.reindex(val_series.index).values,
+    })
 
     return {
         "strategy_metrics": strategy_metrics,
         "benchmark_metrics": benchmark_metrics,
         "portfolio_values": daily_values,
+        "values_df": values_df,
         "decisions": decisions,
+        "total_commission": portfolio.total_commission,
     }
 
 
@@ -351,6 +482,9 @@ def print_summary(result: dict, args: argparse.Namespace) -> None:
     print("\n" + "=" * 64)
     print(f"  SINGLE-STOCK BACKTEST: {args.ticker}  [{args.decoding_mode.upper()}]")
     print(f"  Period: {args.start_date} → {args.end_date}")
+    print(f"  Risk-free rate: {RF_ANNUAL:.1%}  (historical average)")
+    print(f"  Commission: ${COMMISSION_PER_SHARE}/share, "
+          f"min ${COMMISSION_MIN_ORDER}/order (Moomoo US)")
     print("=" * 64)
 
     def _fmt(metrics: dict, label: str) -> None:
@@ -369,7 +503,9 @@ def print_summary(result: dict, args: argparse.Namespace) -> None:
     buys = sum(1 for d in result["decisions"] if d["signal"] == "buy")
     sells = sum(1 for d in result["decisions"] if d["signal"] == "sell")
     holds = sum(1 for d in result["decisions"] if d["signal"] == "hold")
+    total_commission = result.get("total_commission", 0.0)
     print(f"\n  Decisions: {n_decisions} total — {buys} buy, {sells} sell, {holds} hold")
+    print(f"  Total commission paid: ${total_commission:,.2f}")
     print("=" * 64 + "\n")
 
 
@@ -474,6 +610,10 @@ def main(argv=None) -> None:
             "cad_prior_mode": args.cad_prior_mode,
             "rebalance_freq": args.rebalance_freq,
             "initial_capital": args.initial_capital,
+            "rf_annual": RF_ANNUAL,
+            "commission_per_share": COMMISSION_PER_SHARE,
+            "commission_min_order": COMMISSION_MIN_ORDER,
+            "total_commission": result["total_commission"],
             "strategy": result["strategy_metrics"],
             "buy_and_hold": result["benchmark_metrics"],
             "n_decisions": len(result["decisions"]),
@@ -484,6 +624,13 @@ def main(argv=None) -> None:
         with open(out, "w") as f:
             json.dump(summary, f, indent=2, default=str)
         logger.info("Summary written to %s", out)
+
+    if args.values_csv:
+        vpath = Path(args.values_csv)
+        vpath.parent.mkdir(parents=True, exist_ok=True)
+        result["values_df"].to_csv(vpath, index=False)
+        logger.info("Daily values CSV written to %s (%d rows)",
+                     vpath, len(result["values_df"]))
 
 
 if __name__ == "__main__":

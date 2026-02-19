@@ -97,12 +97,13 @@ def build_financial_summary(
     """Build a compact textual summary of price-derived financials.
 
     ``price_df`` must have columns ``date``, ``symbol``, and at least one of
-    ``adjusted_close`` / ``close``.  Only rows for *ticker* up to *date* are
-    used.
+    ``adjusted_close`` / ``close``.  Only rows for *ticker* **strictly before**
+    *date* are used (the agent decides before the market opens on *date*, so it
+    only sees the previous close).
     """
     pcol = "adjusted_close" if "adjusted_close" in price_df.columns else "close"
     df = price_df[
-        (price_df["symbol"] == ticker) & (price_df["date"] <= date)
+        (price_df["symbol"] == ticker) & (price_df["date"] < date)
     ].sort_values("date").tail(lookback_days).copy()
 
     if df.empty:
@@ -178,6 +179,7 @@ def parse_trading_signal(text: str) -> TradingSignal:
             reasoning = str(obj.get("reasoning", ""))[:300]
             return TradingSignal(signal=signal, confidence=confidence, reasoning=reasoning)
         except (json.JSONDecodeError, ValueError, TypeError):
+            logger.warning(f"Could not parse trading signal {text}")
             pass
 
     # Fallback heuristics
@@ -238,9 +240,10 @@ class TradingAgent:
         ticker : str
             Stock symbol.
         date : pd.Timestamp
-            Decision date — the model sees data up to (and including) this date.
+            Decision date — the model sees data up to the **previous close**
+            (strictly before *date*).  The trade is executed at next day's open.
         price_df : pd.DataFrame
-            Full price history; filtered internally to rows ≤ *date*.
+            Full price history; filtered internally to rows < *date*.
         decoding_mode : str
             ``"baseline"`` for standard generation, ``"cad"`` for context-aware decoding.
         """
