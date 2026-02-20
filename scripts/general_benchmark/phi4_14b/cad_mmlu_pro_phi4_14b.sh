@@ -25,5 +25,5 @@ python benchmark/mmlu_pro/eval.py \
   --split test \
   --cad-alpha 1.0 \
   --cad-top-p 1.0 \
-  --cad-prior-mode question_only \
+  --cad-prior-mode recall \
   --results-file logs/results/cad_mmlu_pro_phi4_14b_run.jsonl |& tee logs/cad_mmlu_pro_phi4_14b_run.log

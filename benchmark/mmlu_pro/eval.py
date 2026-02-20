@@ -39,7 +39,14 @@ def format_prompt(question: str, options: List[str]) -> str:
     )
 
 
-def format_prior_prompt(question: str, mode: str) -> str:
+def format_prior_prompt(question: str, options: List[str], mode: str) -> str:
+    if mode == "recall":
+        rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
+        return (
+            "Recall from your pretrained knowledge and select the most likely answer.\n\n"
+            f"Options:\n{rendered_options}\n\n"
+            "Answer:"
+        )
     if mode == "question_only":
         return f"Question: {question}\nAnswer:"
     return f"Question: {question}\nAnswer:"
@@ -107,6 +114,7 @@ def evaluate_split(
                 cad_decoder,
                 batch_prompts,
                 batch_questions,
+                batch_options,
                 decoding_mode,
                 max_new_tokens,
                 temperature,
@@ -143,6 +151,7 @@ def evaluate_split(
             cad_decoder,
             batch_prompts,
             batch_questions,
+            batch_options,
             decoding_mode,
             max_new_tokens,
             temperature,
@@ -177,6 +186,7 @@ def generate_batch(
     cad_decoder: ContextAwareDecoder,
     prompts: List[str],
     questions: List[str],
+    batch_options: List[List[str]],
     decoding_mode: str,
     max_new_tokens: int,
     temperature: float,
@@ -193,7 +203,7 @@ def generate_batch(
         if cad_prior_mode == "same":
             prior_prompts = prompts
         else:
-            prior_prompts = [format_prior_prompt(q, cad_prior_mode) for q in questions]
+            prior_prompts = [format_prior_prompt(q, opts, cad_prior_mode) for q, opts in zip(questions, batch_options)]
         return cad_decoder.generate(prompts, prior_prompts, cad_config)
     # baseline
     inputs = adapter.tokenize(prompts)
@@ -223,7 +233,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "cad"], help="Decoding mode")
     parser.add_argument("--cad-alpha", type=float, default=1.0, help="CAD alpha for context-aware decoding")
     parser.add_argument("--cad-top-p", type=float, default=1.0, help="Top-p filtering for CAD")
-    parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only"], help="Prior prompt mode for CAD")
+    parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only", "recall"], help="Prior prompt mode for CAD")
     parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
     parser.add_argument("--compile", action="store_true", help="Apply torch.compile to the model (reduce-overhead mode)")
     return parser.parse_args()

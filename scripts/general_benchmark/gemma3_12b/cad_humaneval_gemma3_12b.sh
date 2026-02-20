@@ -22,5 +22,5 @@ python benchmark/humaneval/eval.py \
   --decoding-mode cad \
   --cad-alpha 1.0 \
   --cad-top-p 1.0 \
-  --cad-prior-mode question_only \
+  --cad-prior-mode recall \
   --results-file logs/results/cad_humaneval_gemma3_12b_run.jsonl |& tee logs/cad_humaneval_gemma3_12b_run.log

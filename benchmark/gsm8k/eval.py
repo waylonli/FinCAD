@@ -32,6 +32,8 @@ def format_prompt(question: str) -> str:
 
 
 def format_prior_prompt(question: str, mode: str) -> str:
+    if mode == "recall":
+        return "Recall from your pretrained knowledge. What is the numeric answer?\n\nAnswer:"
     if mode == "question_only":
         return f"Question: {question}\nAnswer:"
     return format_prompt(question)
@@ -192,7 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "cad"], help="Decoding mode")
     parser.add_argument("--cad-alpha", type=float, default=1.0, help="CAD alpha for context-aware decoding")
     parser.add_argument("--cad-top-p", type=float, default=1.0, help="Top-p filtering for CAD")
-    parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only"], help="Prior prompt mode for CAD")
+    parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only", "recall"], help="Prior prompt mode for CAD")
     parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
     parser.add_argument("--compile", action="store_true", help="Apply torch.compile to the model (reduce-overhead mode)")
     return parser.parse_args()

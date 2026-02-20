@@ -119,7 +119,6 @@ class TransformersAdapter:
             do_sample=kwargs.pop("do_sample", False),
             temperature=kwargs.pop("temperature", 0.0),
             pad_token_id=self.eos_token_id,
-            repetition_penalty=kwargs.pop("repetition_penalty", 1.1),
         )
         gen_kwargs.update(kwargs)
 

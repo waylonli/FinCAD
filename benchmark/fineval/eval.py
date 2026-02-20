@@ -79,6 +79,13 @@ def format_prompt(query: str, context: str, options: List[str]) -> str:
 
 
 def format_prior_prompt(query: str, options: List[str], mode: str) -> str:
+    if mode == "recall":
+        rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
+        return (
+            "Recall from your pretrained knowledge and select the most likely answer.\n\n"
+            f"Options:\n{rendered_options}\n\n"
+            "Answer:"
+        )
     if mode == "question_only":
         rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
         return (
@@ -307,7 +314,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cad-top-p", type=float, default=1.0,
                         help="Top-p filtering for CAD")
     parser.add_argument("--cad-prior-mode", type=str, default="same",
-                        choices=["same", "question_only"],
+                        choices=["same", "question_only", "recall"],
                         help="Prior prompt mode for CAD")
     parser.add_argument("--attn-implementation", type=str, default=None,
                         help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
