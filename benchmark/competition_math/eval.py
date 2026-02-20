@@ -1,7 +1,7 @@
 """
-Competition Math evaluation (baseline vs steered).
+Competition Math evaluation (baseline vs CAD).
 
-Dataset: qwedsacf/competition_math
+Dataset: HuggingFaceH4/MATH-500
 Assumed fields: problem/question (str), answer/solution (numeric-ish string).
 Scoring uses numeric extraction (last number) similar to GSM8K.
 """
@@ -19,13 +19,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 from cad import CADConfig, ContextAwareDecoder
-from steering import (
-    AdapterInitConfig,
-    ScanSettings,
-    SteeringController,
-    TransformersAdapter,
-    get_contrast_pairs,
-)
+from adapters import AdapterInitConfig, TransformersAdapter
 
 
 def format_prompt(question: str) -> str:
@@ -51,10 +45,9 @@ def extract_number(text: str) -> Optional[str]:
 
 
 def evaluate_split(
-    controller: SteeringController,
+    adapter: TransformersAdapter,
     cad_decoder: ContextAwareDecoder,
     samples: Iterable[dict],
-    strength: float,
     max_new_tokens: int,
     temperature: float,
     batch_size: int,
@@ -81,12 +74,11 @@ def evaluate_split(
 
         if len(batch_prompts) == batch_size:
             generations = generate_batch(
-                controller,
+                adapter,
                 cad_decoder,
                 batch_prompts,
                 batch_questions,
                 decoding_mode,
-                strength,
                 max_new_tokens,
                 temperature,
                 cad_config,
@@ -107,7 +99,6 @@ def evaluate_split(
                         "prediction": pred,
                         "generation": gen,
                         "correct": gold is not None and pred is not None and gold.strip() == pred.strip(),
-                        "steer_strength": strength,
                         "decoding_mode": decoding_mode,
                     }
                     results_file.write(json.dumps(record) + "\n")
@@ -119,12 +110,11 @@ def evaluate_split(
 
     if batch_prompts:
         generations = generate_batch(
-            controller,
+            adapter,
             cad_decoder,
             batch_prompts,
             batch_questions,
             decoding_mode,
-            strength,
             max_new_tokens,
             temperature,
             cad_config,
@@ -145,7 +135,6 @@ def evaluate_split(
                     "prediction": pred,
                     "generation": gen,
                     "correct": gold is not None and pred is not None and gold.strip() == pred.strip(),
-                    "steer_strength": strength,
                     "decoding_mode": decoding_mode,
                 }
                 results_file.write(json.dumps(record) + "\n")
@@ -154,12 +143,11 @@ def evaluate_split(
 
 
 def generate_batch(
-    controller: SteeringController,
+    adapter: TransformersAdapter,
     cad_decoder: ContextAwareDecoder,
     prompts: List[str],
     questions: List[str],
     decoding_mode: str,
-    strength: float,
     max_new_tokens: int,
     temperature: float,
     cad_config: CADConfig,
@@ -177,43 +165,37 @@ def generate_batch(
         else:
             prior_prompts = [format_prior_prompt(q, cad_prior_mode) for q in questions]
         return cad_decoder.generate(prompts, prior_prompts, cad_config)
-    if decoding_mode == "steering":
-        return controller.generate(
-            prompts,
-            strength=strength,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-        )
-    return controller.generate(
-        prompts,
-        strength=0.0,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-    )
+    # baseline
+    inputs = adapter.tokenize(prompts)
+    output_ids = adapter.generate(inputs, max_new_tokens=max_new_tokens, temperature=temperature)
+    input_len = inputs["input_ids"].shape[1]
+    return [
+        adapter.tokenizer.decode(ids[input_len:], skip_special_tokens=True)
+        for ids in output_ids
+    ]
 
 
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[2]
     default_ds_cache = repo_root / "dataset"
 
-    parser = argparse.ArgumentParser(description="Evaluate competition math baseline vs steered decoding.")
+    parser = argparse.ArgumentParser(description="Evaluate competition math baseline vs CAD decoding.")
     parser.add_argument("--model-name", type=str, required=True, help="HuggingFace model id")
     parser.add_argument("--model-cache-dir", type=str, default="../pretrained_models", help="Cache dir for model weights")
     parser.add_argument("--use-chat-template", action="store_true", help="Apply the model's chat template to prompts")
-    parser.add_argument("--steer-strength", type=float, default=0.0, help="Steering strength; 0 = baseline")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit number of samples (None for full)")
     parser.add_argument("--dataset-cache-dir", type=str, default=str(default_ds_cache), help="Cache dir for dataset")
     parser.add_argument("--max-new-tokens", type=int, default=256, help="Generation budget")
     parser.add_argument("--split", type=str, default="test", help="Dataset split to evaluate")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
-    parser.add_argument("--vector-cache", type=str, default=None, help="Path to load/save steering vectors")
     parser.add_argument("--results-file", type=str, default=None, help="Optional JSONL path for per-item generations")
-    parser.add_argument("--steering-profile", type=str, default="recall_suppression", help="Steering profile: recall_suppression or entity_defocus")
-    parser.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "steering", "cad"], help="Decoding mode")
+    parser.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "cad"], help="Decoding mode")
     parser.add_argument("--cad-alpha", type=float, default=1.0, help="CAD alpha for context-aware decoding")
     parser.add_argument("--cad-top-p", type=float, default=1.0, help="Top-p filtering for CAD")
     parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only"], help="Prior prompt mode for CAD")
+    parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
+    parser.add_argument("--compile", action="store_true", help="Apply torch.compile to the model (reduce-overhead mode)")
     return parser.parse_args()
 
 
@@ -226,9 +208,10 @@ def main():
             model_name=args.model_name,
             use_chat_template=args.use_chat_template,
             cache_dir=args.model_cache_dir,
+            attn_implementation=args.attn_implementation,
+            compile_model=args.compile,
         )
     )
-    controller = SteeringController(adapter)
     cad_decoder = ContextAwareDecoder(
         adapter.model,
         adapter.tokenizer,
@@ -236,22 +219,7 @@ def main():
         use_chat_template=args.use_chat_template,
     )
 
-    if args.decoding_mode == "steering" and args.steer_strength != 0.0:
-        if args.vector_cache and Path(args.vector_cache).exists():
-            print(f"Loading steering vectors from {args.vector_cache}")
-            controller.load_vectors(args.vector_cache)
-        else:
-            mem, gen = get_contrast_pairs(args.steering_profile)
-            scan_settings = ScanSettings(
-                layer_step=2 if adapter.num_layers > 40 else 1,
-                top_k=4,
-            )
-            controller.scan_layers(mem, gen, settings=scan_settings)
-            controller.fit_steering_vectors(mem, gen)
-            if args.vector_cache:
-                Path(args.vector_cache).parent.mkdir(parents=True, exist_ok=True)
-                controller.save_vectors(args.vector_cache)
-    elif args.decoding_mode == "baseline":
+    if args.decoding_mode == "baseline":
         print("Running baseline (no steering).")
     elif args.decoding_mode == "cad":
         print("Running context-aware decoding (CAD).")
@@ -270,10 +238,9 @@ def main():
             max_new_tokens=args.max_new_tokens,
         )
         correct, total = evaluate_split(
-            controller,
+            adapter,
             cad_decoder,
             samples,
-            strength=args.steer_strength,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
             batch_size=args.batch_size,
@@ -287,7 +254,7 @@ def main():
         if results_fh is not None:
             results_fh.close()
     acc = correct / total if total else 0.0
-    label = "Steered" if args.decoding_mode == "steering" and args.steer_strength != 0.0 else ("CAD" if args.decoding_mode == "cad" else "Baseline")
+    label = "CAD" if args.decoding_mode == "cad" else "Baseline"
     print(f"\n{label} accuracy on competition_math ({args.split}): {correct}/{total} = {acc:.2%}")
 
 

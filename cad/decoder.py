@@ -47,22 +47,28 @@ class ContextAwareDecoder:
         if len(contexts) != len(priors):
             raise ValueError("Context and prior prompt lists must be the same length.")
 
-        outputs = []
-        for ctx, pri in zip(contexts, priors):
-            outputs.append(self._generate_one(ctx, pri, config))
-        return outputs[0] if single else outputs
-
-    @torch.inference_mode()
-    def _generate_one(self, context_prompt: str, prior_prompt: str, config: CADConfig) -> str:
-        ctx_inputs = self._encode(context_prompt)
-        ctx_ids = ctx_inputs["input_ids"]
+        N = len(contexts)
 
         if config.alpha == 0:
-            return self._generate_single(ctx_ids, config)
+            # No CAD — standard generation per sample
+            outputs = []
+            for ctx in contexts:
+                ctx_ids = self._encode(ctx)["input_ids"]
+                outputs.append(self._generate_single(ctx_ids, config))
+            return outputs[0] if single else outputs
 
-        pri_inputs = self._encode(prior_prompt)
-        pri_ids = pri_inputs["input_ids"]
-        return self._generate_batched(ctx_ids, pri_ids, config)
+        if N == 1:
+            # Single-sample CAD — use existing pair-batched path
+            ctx_ids = self._encode(contexts[0])["input_ids"]
+            pri_ids = self._encode(priors[0])["input_ids"]
+            result = self._generate_batched(ctx_ids, pri_ids, config)
+            return result if single else [result]
+
+        # Multi-sample CAD — batch all N context+prior pairs together
+        ctx_ids_list = [self._encode(ctx)["input_ids"] for ctx in contexts]
+        pri_ids_list = [self._encode(pri)["input_ids"] for pri in priors]
+        outputs = self._generate_batched_multi(ctx_ids_list, pri_ids_list, config)
+        return outputs[0] if single else outputs
 
     # ------------------------------------------------------------------
     # Baseline: single forward pass per token (alpha=0)
@@ -166,6 +172,119 @@ class ContextAwareDecoder:
 
         gen_ids = torch.cat(generated, dim=1) if generated else ctx_ids[:, 0:0]
         return self.tokenizer.decode(gen_ids[0], skip_special_tokens=True)
+
+    # ------------------------------------------------------------------
+    # CAD: batched across N samples (alpha>0, N>1)
+    # ------------------------------------------------------------------
+
+    @torch.inference_mode()
+    def _generate_batched_multi(
+        self,
+        ctx_ids_list: List[torch.Tensor],
+        pri_ids_list: List[torch.Tensor],
+        config: CADConfig,
+    ) -> List[str]:
+        """Batch N context+prior pairs into a single (2N, max_len) forward pass."""
+        N = len(ctx_ids_list)
+        device = ctx_ids_list[0].device
+        pad_id = self.tokenizer.pad_token_id
+        if pad_id is None:
+            pad_id = self.tokenizer.eos_token_id
+
+        # Collect all 2N sequences and find max length
+        all_ids = []  # (1, seq_len) each
+        all_lens = []
+        for ctx_ids, pri_ids in zip(ctx_ids_list, pri_ids_list):
+            all_ids.append(ctx_ids)
+            all_lens.append(ctx_ids.size(1))
+        for pri_ids in pri_ids_list:
+            all_ids.append(pri_ids)
+            all_lens.append(pri_ids.size(1))
+
+        max_len = max(all_lens)
+
+        # Left-pad and build attention mask: rows 0..N-1 = contexts, N..2N-1 = priors
+        padded = []
+        masks = []
+        for ids, seq_len in zip(all_ids, all_lens):
+            padded.append(
+                torch.nn.functional.pad(ids, (max_len - seq_len, 0), value=pad_id)
+            )
+            masks.append(
+                torch.nn.functional.pad(
+                    torch.ones(1, seq_len, device=device, dtype=torch.long),
+                    (max_len - seq_len, 0),
+                    value=0,
+                )
+            )
+
+        batched_ids = torch.cat(padded, dim=0)       # (2N, max_len)
+        attn_mask = torch.cat(masks, dim=0)           # (2N, max_len)
+
+        past = None
+        generated: List[List[torch.Tensor]] = [[] for _ in range(N)]
+        done = [False] * N
+        two_n = 2 * N
+
+        for _ in range(config.max_new_tokens):
+            if past is None:
+                out = self.model(
+                    input_ids=batched_ids,
+                    attention_mask=attn_mask,
+                    use_cache=True,
+                )
+            else:
+                # Build step_ids: for each sample, feed its last generated token
+                # to both its ctx row (i) and pri row (N+i).
+                # For finished samples, feed pad_id.
+                step_tokens = []
+                for i in range(N):
+                    if done[i]:
+                        step_tokens.append(pad_id)
+                    else:
+                        step_tokens.append(generated[i][-1].item())
+                # ctx rows then pri rows — same token for both
+                step_list = step_tokens + step_tokens
+                step_ids = torch.tensor(step_list, device=device, dtype=torch.long).unsqueeze(1)  # (2N, 1)
+
+                attn_mask = torch.cat(
+                    [attn_mask, torch.ones(two_n, 1, device=device, dtype=torch.long)],
+                    dim=1,
+                )
+                out = self.model(
+                    input_ids=step_ids,
+                    attention_mask=attn_mask,
+                    past_key_values=past,
+                    use_cache=True,
+                )
+
+            past = out.past_key_values
+
+            # Extract per-sample combined logits and sample next tokens
+            for i in range(N):
+                if done[i]:
+                    continue
+                logits_ctx = out.logits[i : i + 1, -1, :]
+                logits_pri = out.logits[N + i : N + i + 1, -1, :]
+                combined = (1.0 + config.alpha) * logits_ctx - config.alpha * logits_pri
+                combined = apply_temperature(combined, config.temperature)
+                combined = top_p_filtering(combined, config.top_p)
+                next_id = sample_next_token(combined, config.temperature)
+                generated[i].append(next_id.squeeze(0))  # scalar tensor
+                if self._should_stop(next_id, config):
+                    done[i] = True
+
+            if all(done):
+                break
+
+        results = []
+        for i in range(N):
+            if generated[i]:
+                gen_ids = torch.stack(generated[i]).unsqueeze(0)  # (1, gen_len)
+            else:
+                gen_ids = ctx_ids_list[i][:, 0:0]
+            results.append(self.tokenizer.decode(gen_ids[0], skip_special_tokens=True))
+        return results
 
     # ------------------------------------------------------------------
     # Helpers

@@ -537,7 +537,7 @@ def main(argv=None) -> None:
     logger.info("Loaded %d price rows", len(price_df))
 
     # ---- Load model ----
-    from steering.adapters import AdapterInitConfig, TransformersAdapter
+    from adapters import AdapterInitConfig, TransformersAdapter
     from cad import CADConfig, ContextAwareDecoder
     from cad.calibrator import CADCalibrator
     from .agent import TradingAgent

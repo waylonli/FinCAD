@@ -1,5 +1,5 @@
 """
-FinEval evaluation (baseline vs steered vs CAD).
+FinEval evaluation (baseline vs CAD).
 
 Dataset: waylonli/fineval-processed (HuggingFace)
 20 single-selection MC subsets covering CFA, credit risk, sentiment, ESG,
@@ -33,13 +33,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 from cad import CADConfig, ContextAwareDecoder
-from steering import (
-    AdapterInitConfig,
-    ScanSettings,
-    SteeringController,
-    TransformersAdapter,
-    get_contrast_pairs,
-)
+from adapters import AdapterInitConfig, TransformersAdapter
 
 LETTERS = list(string.ascii_uppercase) + [f"A{c}" for c in string.ascii_uppercase]
 
@@ -152,16 +146,15 @@ def load_subset(full_df: pd.DataFrame, subset: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Batch generation  (identical logic to mmlu_pro)
+# Batch generation
 # ---------------------------------------------------------------------------
 
 def generate_batch(
-    controller: SteeringController,
+    adapter: TransformersAdapter,
     cad_decoder: ContextAwareDecoder,
     prompts: List[str],
     prior_inputs: List[Tuple[str, List[str]]],
     decoding_mode: str,
-    strength: float,
     max_new_tokens: int,
     temperature: float,
     cad_config: CADConfig,
@@ -182,20 +175,14 @@ def generate_batch(
                 for q, opts in prior_inputs
             ]
         return cad_decoder.generate(prompts, prior_prompts, cad_config)
-    if decoding_mode == "steering":
-        return controller.generate(
-            prompts,
-            strength=strength,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-        )
     # baseline
-    return controller.generate(
-        prompts,
-        strength=0.0,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-    )
+    inputs = adapter.tokenize(prompts)
+    output_ids = adapter.generate(inputs, max_new_tokens=max_new_tokens, temperature=temperature)
+    input_len = inputs["input_ids"].shape[1]
+    return [
+        adapter.tokenizer.decode(ids[input_len:], skip_special_tokens=True)
+        for ids in output_ids
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -203,10 +190,9 @@ def generate_batch(
 # ---------------------------------------------------------------------------
 
 def evaluate_split(
-    controller: SteeringController,
+    adapter: TransformersAdapter,
     cad_decoder: ContextAwareDecoder,
     samples: Iterable[dict],
-    strength: float,
     max_new_tokens: int,
     temperature: float,
     batch_size: int,
@@ -229,8 +215,8 @@ def evaluate_split(
     def _flush():
         nonlocal correct, total
         generations = generate_batch(
-            controller, cad_decoder, batch_prompts, batch_prior_inputs,
-            decoding_mode, strength, max_new_tokens, temperature,
+            adapter, cad_decoder, batch_prompts, batch_prior_inputs,
+            decoding_mode, max_new_tokens, temperature,
             cad_config, cad_prior_mode,
         )
         if isinstance(generations, str):
@@ -252,7 +238,6 @@ def evaluate_split(
                     "prediction": pred,
                     "generation": gen,
                     "correct": gold is not None and pred == gold,
-                    "steer_strength": strength,
                     "decoding_mode": decoding_mode,
                 }
                 results_file.write(json.dumps(record) + "\n")
@@ -294,35 +279,29 @@ def evaluate_split(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate FinEval MC subsets: baseline vs steered vs CAD."
+        description="Evaluate FinEval MC subsets: baseline vs CAD."
     )
     # FinEval-specific
     parser.add_argument("--subset", type=str, default="all",
                         help="Subset name or 'all' (default: all)")
     parser.add_argument("--dataset-cache-dir", type=str, default="./datasets",
                         help="Cache dir for dataset")
-    # Standard (same as mmlu_pro)
+    # Standard
     parser.add_argument("--model-name", type=str, required=True, help="HuggingFace model id")
     parser.add_argument("--model-cache-dir", type=str, default="../pretrained_models",
                         help="Cache dir for model weights")
     parser.add_argument("--use-chat-template", action="store_true",
                         help="Apply the model's chat template to prompts")
-    parser.add_argument("--steer-strength", type=float, default=0.0,
-                        help="Steering strength; 0 = baseline")
     parser.add_argument("--max-samples", type=int, default=None,
                         help="Limit number of samples per subset (None for full)")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Generation budget")
     parser.add_argument("--temperature", type=float, default=0.0,
                         help="Sampling temperature (0 = greedy)")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
-    parser.add_argument("--vector-cache", type=str, default=None,
-                        help="Path to load/save steering vectors")
     parser.add_argument("--results-file", type=str, default=None,
                         help="Optional JSONL path for per-item generations")
-    parser.add_argument("--steering-profile", type=str, default="recall_suppression",
-                        help="Steering profile: recall_suppression or entity_defocus")
     parser.add_argument("--decoding-mode", type=str, default="baseline",
-                        choices=["baseline", "steering", "cad"], help="Decoding mode")
+                        choices=["baseline", "cad"], help="Decoding mode")
     parser.add_argument("--cad-alpha", type=float, default=1.0,
                         help="CAD alpha for context-aware decoding")
     parser.add_argument("--cad-top-p", type=float, default=1.0,
@@ -330,6 +309,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cad-prior-mode", type=str, default="same",
                         choices=["same", "question_only"],
                         help="Prior prompt mode for CAD")
+    parser.add_argument("--attn-implementation", type=str, default=None,
+                        help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
+    parser.add_argument("--compile", action="store_true",
+                        help="Apply torch.compile to the model (reduce-overhead mode)")
     return parser.parse_args()
 
 
@@ -345,9 +328,10 @@ def main():
             model_name=args.model_name,
             use_chat_template=args.use_chat_template,
             cache_dir=args.model_cache_dir,
+            attn_implementation=args.attn_implementation,
+            compile_model=args.compile,
         )
     )
-    controller = SteeringController(adapter)
     cad_decoder = ContextAwareDecoder(
         adapter.model,
         adapter.tokenizer,
@@ -355,25 +339,7 @@ def main():
         use_chat_template=args.use_chat_template,
     )
 
-    # ------------------------------------------------------------------
-    # Steering vector setup
-    # ------------------------------------------------------------------
-    if args.decoding_mode == "steering" and args.steer_strength != 0.0:
-        if args.vector_cache and Path(args.vector_cache).exists():
-            print(f"Loading steering vectors from {args.vector_cache}")
-            controller.load_vectors(args.vector_cache)
-        else:
-            mem, gen = get_contrast_pairs(args.steering_profile)
-            scan_settings = ScanSettings(
-                layer_step=2 if adapter.num_layers > 40 else 1,
-                top_k=4,
-            )
-            controller.scan_layers(mem, gen, settings=scan_settings)
-            controller.fit_steering_vectors(mem, gen)
-            if args.vector_cache:
-                Path(args.vector_cache).parent.mkdir(parents=True, exist_ok=True)
-                controller.save_vectors(args.vector_cache)
-    elif args.decoding_mode == "baseline":
+    if args.decoding_mode == "baseline":
         print("Running baseline (no steering).")
     elif args.decoding_mode == "cad":
         print("Running context-aware decoding (CAD).")
@@ -418,10 +384,9 @@ def main():
             samples = islice(df.to_dict("records"), total_samples)
 
             correct, total = evaluate_split(
-                controller,
+                adapter,
                 cad_decoder,
                 samples,
-                strength=args.steer_strength,
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
                 batch_size=args.batch_size,
@@ -442,10 +407,7 @@ def main():
     # ------------------------------------------------------------------
     # Summary table
     # ------------------------------------------------------------------
-    label = (
-        "Steered" if args.decoding_mode == "steering" and args.steer_strength != 0.0
-        else ("CAD" if args.decoding_mode == "cad" else "Baseline")
-    )
+    label = "CAD" if args.decoding_mode == "cad" else "Baseline"
     print(f"\n{'=' * 60}")
     print(f"FinEval {label} Results")
     print(f"{'=' * 60}")

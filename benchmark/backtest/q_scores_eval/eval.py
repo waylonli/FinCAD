@@ -267,7 +267,7 @@ def _run_on_demand_scoring(
     symbols: list[str],
 ) -> pd.DataFrame:
     """Load a HF model, score filings, and return a score DataFrame."""
-    from steering.adapters import AdapterInitConfig, TransformersAdapter
+    from adapters import AdapterInitConfig, TransformersAdapter
     from cad import CADConfig, ContextAwareDecoder
     from cad.calibrator import CADCalibrator
 
