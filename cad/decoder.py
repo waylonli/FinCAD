@@ -74,6 +74,7 @@ class ContextAwareDecoder:
     # Baseline: single forward pass per token (alpha=0)
     # ------------------------------------------------------------------
 
+    @torch.inference_mode()
     def _generate_single(self, input_ids: torch.Tensor, config: CADConfig) -> str:
         past = None
         generated: List[torch.Tensor] = []
@@ -104,6 +105,7 @@ class ContextAwareDecoder:
     # CAD: batched context + prior in one forward pass (alpha>0)
     # ------------------------------------------------------------------
 
+    @torch.inference_mode()
     def _generate_batched(
         self, ctx_ids: torch.Tensor, pri_ids: torch.Tensor, config: CADConfig,
     ) -> str:
@@ -174,7 +176,7 @@ class ContextAwareDecoder:
         return self.tokenizer.decode(gen_ids[0], skip_special_tokens=True)
 
     # ------------------------------------------------------------------
-    # CAD: batched across N samples (alpha>0, N>1)
+    # CAD: vectorized batch across N samples (alpha>0, N>1)
     # ------------------------------------------------------------------
 
     @torch.inference_mode()
@@ -184,106 +186,122 @@ class ContextAwareDecoder:
         pri_ids_list: List[torch.Tensor],
         config: CADConfig,
     ) -> List[str]:
-        """Batch N context+prior pairs into a single (2N, max_len) forward pass."""
+        """Batch N context+prior pairs into a single (2N, max_len) forward pass.
+
+        Optimised decode loop: logit combination, temperature, top-p, and
+        sampling are fully vectorised across all N samples per step.
+        Token state stays on GPU (no .item() syncs during generation).
+        Attention mask is pre-allocated to avoid per-step torch.cat.
+        """
         N = len(ctx_ids_list)
         device = ctx_ids_list[0].device
         pad_id = self.tokenizer.pad_token_id
         if pad_id is None:
             pad_id = self.tokenizer.eos_token_id
-
-        # Collect all 2N sequences and find max length
-        all_ids = []  # (1, seq_len) each
-        all_lens = []
-        for ctx_ids, pri_ids in zip(ctx_ids_list, pri_ids_list):
-            all_ids.append(ctx_ids)
-            all_lens.append(ctx_ids.size(1))
-        for pri_ids in pri_ids_list:
-            all_ids.append(pri_ids)
-            all_lens.append(pri_ids.size(1))
-
-        max_len = max(all_lens)
-
-        # Left-pad and build attention mask: rows 0..N-1 = contexts, N..2N-1 = priors
-        padded = []
-        masks = []
-        for ids, seq_len in zip(all_ids, all_lens):
-            padded.append(
-                torch.nn.functional.pad(ids, (max_len - seq_len, 0), value=pad_id)
-            )
-            masks.append(
-                torch.nn.functional.pad(
-                    torch.ones(1, seq_len, device=device, dtype=torch.long),
-                    (max_len - seq_len, 0),
-                    value=0,
-                )
-            )
-
-        batched_ids = torch.cat(padded, dim=0)       # (2N, max_len)
-        attn_mask = torch.cat(masks, dim=0)           # (2N, max_len)
-
-        past = None
-        generated: List[List[torch.Tensor]] = [[] for _ in range(N)]
-        done = [False] * N
+        alpha = config.alpha
         two_n = 2 * N
 
-        for _ in range(config.max_new_tokens):
+        # Build stop-token tensor for vectorised checking
+        stop_ids: List[int] = []
+        if self.tokenizer.eos_token_id is not None:
+            stop_ids.append(self.tokenizer.eos_token_id)
+        if config.stop_token_ids:
+            stop_ids.extend(config.stop_token_ids)
+        stop_tensor = (
+            torch.tensor(stop_ids, device=device, dtype=torch.long)
+            if stop_ids else None
+        )
+
+        # Collect all 2N sequences and find max prompt length
+        all_ids = list(ctx_ids_list) + list(pri_ids_list)
+        all_lens = [ids.size(1) for ids in all_ids]
+        max_prompt_len = max(all_lens)
+
+        # Pre-allocate attention mask: (2N, max_prompt_len + max_new_tokens)
+        total_len = max_prompt_len + config.max_new_tokens
+        attn_mask = torch.zeros(two_n, total_len, device=device, dtype=torch.long)
+
+        # Left-pad input ids and fill attention mask for prompt positions
+        padded = []
+        for row, (ids, seq_len) in enumerate(zip(all_ids, all_lens)):
+            padded.append(
+                torch.nn.functional.pad(ids, (max_prompt_len - seq_len, 0), value=pad_id)
+            )
+            attn_mask[row, max_prompt_len - seq_len : max_prompt_len] = 1
+
+        batched_ids = torch.cat(padded, dim=0)  # (2N, max_prompt_len)
+
+        # Generation state — all on GPU, no Python lists of tensors
+        past = None
+        generated = torch.full(
+            (N, config.max_new_tokens), pad_id, device=device, dtype=torch.long,
+        )
+        done = torch.zeros(N, dtype=torch.bool, device=device)
+        last_tokens = torch.full((N,), pad_id, device=device, dtype=torch.long)
+        gen_lengths = torch.zeros(N, dtype=torch.long, device=device)
+        cur_len = max_prompt_len  # tracks total KV-cache length
+
+        for step in range(config.max_new_tokens):
             if past is None:
+                # Prefill
                 out = self.model(
                     input_ids=batched_ids,
-                    attention_mask=attn_mask,
+                    attention_mask=attn_mask[:, :cur_len],
                     use_cache=True,
                 )
             else:
-                # Build step_ids: for each sample, feed its last generated token
-                # to both its ctx row (i) and pri row (N+i).
-                # For finished samples, feed pad_id.
-                step_tokens = []
-                for i in range(N):
-                    if done[i]:
-                        step_tokens.append(pad_id)
-                    else:
-                        step_tokens.append(generated[i][-1].item())
-                # ctx rows then pri rows — same token for both
-                step_list = step_tokens + step_tokens
-                step_ids = torch.tensor(step_list, device=device, dtype=torch.long).unsqueeze(1)  # (2N, 1)
+                # Build step_ids on GPU — no .item() round-trips
+                tokens_for_step = torch.where(done, pad_id, last_tokens)  # (N,)
+                step_ids = tokens_for_step.repeat(2).unsqueeze(1)  # (2N, 1)
 
-                attn_mask = torch.cat(
-                    [attn_mask, torch.ones(two_n, 1, device=device, dtype=torch.long)],
-                    dim=1,
-                )
+                # Extend attention mask for the new token position
+                attn_mask[:, cur_len] = 1
+                cur_len += 1
+
                 out = self.model(
                     input_ids=step_ids,
-                    attention_mask=attn_mask,
+                    attention_mask=attn_mask[:, :cur_len],
                     past_key_values=past,
                     use_cache=True,
                 )
 
             past = out.past_key_values
 
-            # Extract per-sample combined logits and sample next tokens
-            for i in range(N):
-                if done[i]:
-                    continue
-                logits_ctx = out.logits[i : i + 1, -1, :]
-                logits_pri = out.logits[N + i : N + i + 1, -1, :]
-                combined = (1.0 + config.alpha) * logits_ctx - config.alpha * logits_pri
-                combined = apply_temperature(combined, config.temperature)
-                combined = top_p_filtering(combined, config.top_p)
-                next_id = sample_next_token(combined, config.temperature)
-                generated[i].append(next_id.squeeze(0))  # scalar tensor
-                if self._should_stop(next_id, config):
-                    done[i] = True
+            # Vectorised logit combination across all N samples at once
+            logits_ctx = out.logits[:N, -1, :]   # (N, vocab)
+            logits_pri = out.logits[N:, -1, :]   # (N, vocab)
+            combined = (1.0 + alpha) * logits_ctx - alpha * logits_pri
 
-            if all(done):
+            combined = apply_temperature(combined, config.temperature)
+            combined = top_p_filtering(combined, config.top_p)
+
+            # Vectorised sampling — no per-sample Python loop
+            if config.temperature is None or config.temperature <= 0:
+                next_tokens = torch.argmax(combined, dim=-1)  # (N,)
+            else:
+                probs = torch.nn.functional.softmax(combined, dim=-1)
+                next_tokens = torch.multinomial(probs, num_samples=1).squeeze(-1)
+
+            # Mask finished samples, store, and update lengths
+            next_tokens = torch.where(done, pad_id, next_tokens)
+            generated[:, step] = next_tokens
+            last_tokens = next_tokens
+            gen_lengths += (~done).long()
+
+            # Vectorised stop check — single GPU op instead of N .item() calls
+            if stop_tensor is not None:
+                hits = (next_tokens.unsqueeze(1) == stop_tensor.unsqueeze(0)).any(dim=1)
+                done = done | hits
+
+            if done.all():
                 break
 
+        # Decode results — one GPU→CPU sync for lengths, then slice
+        lengths = gen_lengths.tolist()
         results = []
         for i in range(N):
-            if generated[i]:
-                gen_ids = torch.stack(generated[i]).unsqueeze(0)  # (1, gen_len)
-            else:
-                gen_ids = ctx_ids_list[i][:, 0:0]
-            results.append(self.tokenizer.decode(gen_ids[0], skip_special_tokens=True))
+            gen_ids = generated[i, :lengths[i]]
+            results.append(self.tokenizer.decode(gen_ids, skip_special_tokens=True))
         return results
 
     # ------------------------------------------------------------------
