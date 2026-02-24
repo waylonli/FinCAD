@@ -8,6 +8,7 @@ snippets for scoring. Use with caution; executing model outputs can be unsafe.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -36,21 +37,108 @@ def format_prior_prompt(problem: str, mode: str) -> str:
     return format_prompt(problem)
 
 
-def sanitize_generation(generation: str) -> str:
+def _truncate_after_function(code: str) -> str:
+    """Keep only the first top-level function definition."""
+    lines = code.split("\n")
+    result: List[str] = []
+    found_body = False
+    for line in lines:
+        if not found_body:
+            result.append(line)
+            if line.startswith("def "):
+                found_body = True
+            continue
+        # Inside function body: keep indented and blank lines
+        if line.strip() == "":
+            result.append(line)
+        elif line[0] in (" ", "\t"):
+            result.append(line)
+        else:
+            break  # unindented non-empty line → function ended
+    return "\n".join(result).rstrip()
+
+
+def _parses_ok(code: str) -> bool:
+    """Return True if *code* is valid Python."""
+    try:
+        ast.parse(code)
+        return True
+    except SyntaxError:
+        return False
+
+
+def _docstring_strip_candidates(generation: str) -> List[str]:
+    """Return candidates obtained by stripping echoed docstring content.
+
+    Models often echo back the docstring (or parts of it) before the actual
+    code body. This produces one candidate per ``\"\"\"``/``'''`` occurrence
+    in the first 30 lines — each candidate is the remainder after that line.
+    The caller validates each with ``ast.parse``.
     """
-    Extract a plausible code block from a free-form LLM generation.
-    Priority:
-    1) First fenced ```python ... ``` block (or ``` ... ```).
-    2) Else take from first 'def ' onward.
-    3) Fallback to raw text.
+    lines = generation.split("\n")
+    results: List[str] = []
+    for i, line in enumerate(lines[:30]):
+        if '"""' in line or "'''" in line:
+            remainder = "\n".join(lines[i + 1:])
+            if remainder.strip():
+                results.append(remainder)
+    return results
+
+
+def sanitize_generation(generation: str, prompt: str = "") -> str:
+    """Extract a plausible code block from a free-form LLM generation.
+
+    Tries multiple extraction strategies, validated with ``ast.parse``, and
+    returns the first candidate that compiles.  This handles models that echo
+    back the docstring (creating unbalanced triple-quotes when naively
+    prepended to the prompt).
     """
-    fences = re.findall(r"```(?:python)?\n(.*?)```", generation, flags=re.DOTALL | re.IGNORECASE)
+    candidates: List[str] = []
+
+    # ── Strategy 1: fenced ```python ... ``` block ──────────────────────
+    fences = re.findall(
+        r"```(?:python)?\n(.*?)```", generation, flags=re.DOTALL | re.IGNORECASE
+    )
     if fences:
-        candidate = fences[0]
-    else:
-        idx = generation.find("def ")
-        candidate = generation[idx:] if idx != -1 else generation
-    return candidate.strip()
+        block = fences[0].strip()
+        if "def " in block:
+            candidates.append(_truncate_after_function(block))
+        if prompt:
+            candidates.append(
+                _truncate_after_function(prompt.rstrip("\n") + "\n" + block)
+            )
+
+    # ── Strategy 2: prompt + raw generation ─────────────────────────────
+    if prompt:
+        combined_raw = prompt.rstrip("\n") + "\n" + generation
+        idx = combined_raw.find("def ")
+        if idx != -1:
+            candidates.append(_truncate_after_function(combined_raw[idx:]))
+
+    # ── Strategy 3: prompt + generation with echoed docstring stripped ──
+    #     Try every """ position — the right cut-point depends on how much
+    #     the model echoed.
+    if prompt:
+        for stripped in _docstring_strip_candidates(generation):
+            combined = prompt.rstrip("\n") + "\n" + stripped
+            idx = combined.find("def ")
+            if idx != -1:
+                candidates.append(_truncate_after_function(combined[idx:]))
+
+    # ── Strategy 4: generation alone (may already contain full def) ─────
+    idx = generation.find("def ")
+    if idx != -1:
+        candidates.append(_truncate_after_function(generation[idx:]))
+
+    # ── Pick the first candidate that parses ────────────────────────────
+    for candidate in candidates:
+        if _parses_ok(candidate):
+            return candidate
+
+    # ── Fallback: return best-effort (first candidate, or raw) ──────────
+    if candidates:
+        return candidates[0]
+    return generation.strip()
 
 
 def run_candidate(code: str, test_code: str, entry_point: str) -> bool:
@@ -63,8 +151,11 @@ def run_candidate(code: str, test_code: str, entry_point: str) -> bool:
         exec(code, ns, ns)
         exec(test_code, ns, ns)
         return True
-    except Exception:
-        traceback.print_exc()
+    except SyntaxError as e:
+        print(f"  [SyntaxError] {entry_point}: {e.msg} (line {e.lineno})")
+        return False
+    except Exception as e:
+        print(f"  [Error] {entry_point}: {type(e).__name__}: {e}")
         return False
 
 
@@ -110,7 +201,7 @@ def evaluate_split(
             if isinstance(generations, str):
                 generations = [generations]
             for gen, test_code, entry, sid, prompt in zip(generations, batch_tests, batch_entries, ids, batch_prompts):
-                candidate_code = sanitize_generation(gen)
+                candidate_code = sanitize_generation(gen, prompt)
                 ok = run_candidate(candidate_code, test_code, entry)
                 total += 1
                 if ok:
@@ -144,7 +235,7 @@ def evaluate_split(
         if isinstance(generations, str):
             generations = [generations]
         for gen, test_code, entry, sid, prompt in zip(generations, batch_tests, batch_entries, ids, batch_prompts):
-            candidate_code = sanitize_generation(gen)
+            candidate_code = sanitize_generation(gen, prompt)
             ok = run_candidate(candidate_code, test_code, entry)
             total += 1
             if ok:

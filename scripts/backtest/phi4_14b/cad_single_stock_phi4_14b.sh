@@ -10,6 +10,7 @@
 
 TICKER=${1:-NVDA}
 
+source ~/.bashrc
 conda activate look-ahead-bias
 export PYTHONPATH=PYTHONPATH:./
 export CUDA_VISIBLE_DEVICES=0,1

@@ -8,6 +8,7 @@
 #$ -o ~/look-ahead-bias/logs/server-logs/cad-gsm8k-gemma3_12b.out
 #$ -e ~/look-ahead-bias/logs/server-logs/cad-gsm8k-gemma3_12b.err
 
+source ~/.bashrc
 conda activate look-ahead-bias
 export PYTHONPATH=PYTHONPATH:./
 

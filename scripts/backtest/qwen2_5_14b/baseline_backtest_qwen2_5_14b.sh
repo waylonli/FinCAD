@@ -8,6 +8,7 @@
 #$ -o ~/look-ahead-bias/logs/server-logs/baseline-backtest-qwen2_5_14b.out
 #$ -e ~/look-ahead-bias/logs/server-logs/baseline-backtest-qwen2_5_14b.err
 
+source ~/.bashrc
 conda activate look-ahead-bias
 export PYTHONPATH=PYTHONPATH:./
 export CUDA_VISIBLE_DEVICES=0,1

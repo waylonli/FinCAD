@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+from tqdm import tqdm
 
 from cad import CADConfig, ContextAwareDecoder
 from cad.calibrator import CADCalibrator
@@ -213,9 +214,19 @@ class HFFilingScorer:
         chunk_explanations: Dict[str, List[str]] = {cat: [] for cat in self.category_prompts}
         raw_generations: Dict[str, str] = {}
 
+        n_categories = len(self.category_prompts)
+        total_calls = num_chunks * n_categories
+        pbar = tqdm(
+            total=total_calls,
+            desc=f"  {symbol}",
+            leave=False,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+        )
         for ci, chunk_text in enumerate(chunks):
-            chunk_label = f"[chunk {ci + 1}/{num_chunks}]" if num_chunks > 1 else ""
             for category, prompt_template in self.category_prompts.items():
+                pbar.set_postfix_str(
+                    f"chunk {ci + 1}/{num_chunks} {category}", refresh=True,
+                )
                 context_prompt = prompt_template.format(input_annual_report=chunk_text)
                 prior_prompt = build_prior_prompt(
                     category, symbol, self.config.cad_prior_mode,
@@ -223,18 +234,14 @@ class HFFilingScorer:
 
                 generation = self.decoder.generate(context_prompt, prior_prompt, cad_config)
 
-                # Keep all raw generations; for multi-chunk append with separator
                 gen_key = category if num_chunks == 1 else f"{category}_chunk{ci}"
                 raw_generations[gen_key] = generation
 
                 score, explanation = _parse_score_json(generation)
                 chunk_scores[category].append(score)
                 chunk_explanations[category].append(explanation)
-
-                if num_chunks > 1:
-                    logger.info(
-                        "  %s %s: score=%.1f", chunk_label, category, score,
-                    )
+                pbar.update(1)
+        pbar.close()
 
         # Aggregate: mean of valid per-chunk scores for each category
         category_scores: Dict[str, float] = {}
@@ -244,19 +251,12 @@ class HFFilingScorer:
             category_scores[category] = (
                 sum(valid) / len(valid) if valid else 0.0
             )
-            # Keep the explanation from the first chunk (most context-rich)
             category_explanations[category] = (
                 chunk_explanations[category][0] if chunk_explanations[category] else ""
             )
 
         valid_scores = [s for s in category_scores.values() if 0 <= s <= 100]
         quality_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
-
-        if num_chunks > 1:
-            logger.info(
-                "Aggregated %d chunks → quality_score=%.2f for %s @ %s",
-                num_chunks, quality_score, symbol, report_date,
-            )
 
         return FilingScoringResult(
             symbol=symbol,
@@ -299,13 +299,13 @@ class HFFilingScorer:
             except Exception as exc:
                 logger.warning("Could not read score cache %s: %s", cache_path, exc)
 
-        for text, symbol, report_date in filings:
+        filings_pbar = tqdm(filings, desc="Scoring filings", unit="filing")
+        for text, symbol, report_date in filings_pbar:
             key = (symbol.upper(), str(report_date))
             if key in cached_keys:
-                logger.info("Skipping cached score for %s @ %s", symbol, report_date)
                 continue
 
-            logger.info("Scoring %s @ %s ...", symbol, report_date)
+            filings_pbar.set_description(f"Scoring {symbol} @ {report_date}")
             result = self.score_filing(text, symbol, report_date)
 
             record = {
@@ -318,6 +318,8 @@ class HFFilingScorer:
             for cat, score in result.category_scores.items():
                 record[f"category_{cat}_score"] = score
             records.append(record)
+
+            filings_pbar.set_postfix(q_score=f"{result.quality_score:.1f}")
 
             if cache_path is not None:
                 try:

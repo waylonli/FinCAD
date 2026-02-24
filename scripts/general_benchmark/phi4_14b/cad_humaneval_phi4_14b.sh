@@ -9,6 +9,7 @@
 #$ -e ~/look-ahead-bias/logs/server-logs/cad-humaneval-phi4_14b.err
 
 
+source ~/.bashrc
 conda activate look-ahead-bias
 export PYTHONPATH=PYTHONPATH:./
 

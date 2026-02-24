@@ -8,8 +8,7 @@
 #$ -o ~/look-ahead-bias/logs/server-logs/cad-fineval-phi4_14b.out
 #$ -e ~/look-ahead-bias/logs/server-logs/cad-fineval-phi4_14b.err
 
-
-
+source ~/.bashrc
 conda activate look-ahead-bias
 export PYTHONPATH=PYTHONPATH:./
 

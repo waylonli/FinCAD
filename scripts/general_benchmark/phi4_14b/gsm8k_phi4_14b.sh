@@ -10,6 +10,7 @@
 
 
 
+source ~/.bashrc
 conda activate look-ahead-bias
 export PYTHONPATH=PYTHONPATH:./
 
