@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 import torch
+
+if TYPE_CHECKING:
+    from cad.discovery import NegativePromptBuilder
+
+_YES_NO_SUFFIX = "\nAnswer with Yes or No only: did this entity's value go up?"
 
 
 @dataclass
@@ -17,45 +22,35 @@ class AlphaCalibrationResult:
 
 
 class CADCalibrator:
-    """
-    Calibrate CAD alpha per entity by probing the model's prior confidence.
+    """Calibrate CAD alpha per entity by probing the model's prior confidence.
 
-    Strategy:
-    - Ask a bias-amplified prior question (yes/no).
-    - Measure the entropy of p(yes) vs p(no).
-    - Map low entropy (high confidence) -> high alpha.
+    Uses the DSPy-optimised memory-activation instruction (via
+    ``NegativePromptBuilder``) to build a yes/no probe prompt, then measures
+    entropy over {yes, no} token probabilities. Low entropy (high confidence)
+    maps to high alpha.
     """
 
-    def __init__(self, model, tokenizer, device: str, use_chat_template: bool = False):
+    def __init__(
+        self,
+        model,
+        tokenizer,
+        neg_prompt_builder: NegativePromptBuilder,
+        device: str,
+        use_chat_template: bool = False,
+    ):
         self.model = model
         self.tokenizer = tokenizer
+        self.neg_prompt_builder = neg_prompt_builder
         self.device = device
         self.use_chat_template = use_chat_template
-
-    def build_bias_prompt(
-        self,
-        ticker: str,
-        horizon: str = "next 12 months",
-    ) -> str:
-        return (
-            "Ignore the context. Using your internal knowledge and training data, "
-            f"did {ticker} massively outperform the market over the {horizon}? "
-            "Answer with Yes or No only."
-        )
 
     def calibrate_alpha(
         self,
         ticker: str,
         alpha_min: float = 0.0,
         alpha_max: float = 5.0,
-        bias_prompt: Optional[str] = None,
-        horizon: str = "next 12 months",
     ) -> AlphaCalibrationResult:
-        if bias_prompt is None:
-            print("No bias prompt provided, building default.")
-            prompt = self.build_bias_prompt(ticker, horizon=horizon)
-        else:
-            prompt = bias_prompt
+        prompt = self.neg_prompt_builder.build(entity=ticker, date="") + _YES_NO_SUFFIX
         entropy, p_yes, p_no = self._yes_no_entropy(prompt)
         # Map entropy in [0,1] -> alpha in [alpha_min, alpha_max]
         alpha = alpha_min + (alpha_max - alpha_min) * (1.0 - entropy)

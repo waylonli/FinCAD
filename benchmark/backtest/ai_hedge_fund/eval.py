@@ -561,22 +561,23 @@ def main(argv=None) -> None:
         use_chat_template=args.use_chat_template,
     )
 
+    neg_prompt_builder = None
+    if args.cad_prior_mode == "optimized" or args.use_calibrator:
+        from cad.discovery import NegativePromptBuilder
+        if args.optimized_instruction is None:
+            print("ERROR: --optimized-instruction is required when --cad-prior-mode=optimized or --use-calibrator.", file=sys.stderr)
+            sys.exit(1)
+        neg_prompt_builder = NegativePromptBuilder.from_file(args.optimized_instruction)
+
     calibrator = None
     if args.use_calibrator:
         calibrator = CADCalibrator(
             adapter.model,
             adapter.tokenizer,
+            neg_prompt_builder=neg_prompt_builder,
             device=adapter.device,
             use_chat_template=args.use_chat_template,
         )
-
-    neg_prompt_builder = None
-    if args.cad_prior_mode == "optimized":
-        from cad.discovery import NegativePromptBuilder
-        if args.optimized_instruction is None:
-            print("ERROR: --optimized-instruction is required when --cad-prior-mode=optimized.", file=sys.stderr)
-            sys.exit(1)
-        neg_prompt_builder = NegativePromptBuilder.from_file(args.optimized_instruction)
 
     agent = TradingAgent(
         decoder,

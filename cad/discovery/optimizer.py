@@ -62,6 +62,7 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
     if cfg.optimizer == "MIPROv2":
         optimizer = dspy.MIPROv2(
             metric=bias_activation_score,
+            auto=None,
             num_candidates=cfg.num_candidates,
             num_threads=1,
         )
