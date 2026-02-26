@@ -70,11 +70,13 @@ class HFFilingScorer:
         scoring_config: ScoringConfig,
         calibrator: Optional[CADCalibrator] = None,
         category_prompts: Optional[Dict[str, str]] = None,
+        neg_prompt_builder=None,
     ) -> None:
         self.decoder = decoder
         self.config = scoring_config
         self.calibrator = calibrator
         self.category_prompts = category_prompts or DEFAULT_CATEGORY_PROMPTS
+        self.neg_prompt_builder = neg_prompt_builder
         self._stop_token_ids: Optional[list] = None
         self._max_ctx_tokens = self._resolve_max_context()
 
@@ -230,6 +232,7 @@ class HFFilingScorer:
                 context_prompt = prompt_template.format(input_annual_report=chunk_text)
                 prior_prompt = build_prior_prompt(
                     category, symbol, self.config.cad_prior_mode,
+                    neg_prompt_builder=self.neg_prompt_builder,
                 )
 
                 generation = self.decoder.generate(context_prompt, prior_prompt, cad_config)

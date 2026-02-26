@@ -135,7 +135,12 @@ Respond with valid JSON only—do not include any additional text before or afte
 """
 
 
-def build_prior_prompt(category: str, symbol: str, mode: str) -> str:
+def build_prior_prompt(
+    category: str,
+    symbol: str,
+    mode: str,
+    neg_prompt_builder=None,
+) -> str:
     """Build a prior prompt for CAD decoding.
 
     Parameters
@@ -147,9 +152,23 @@ def build_prior_prompt(category: str, symbol: str, mode: str) -> str:
     mode:
         ``"no_context"`` -- generic evaluation without company-specific info.
         ``"bias_amplified"`` -- names the ticker to trigger memorised knowledge.
+        ``"optimized"`` -- use DSPy-optimized instruction via *neg_prompt_builder*.
+    neg_prompt_builder:
+        ``NegativePromptBuilder`` instance (required when mode is ``"optimized"``).
     """
+    if mode == "optimized" and neg_prompt_builder is not None:
+        output_format = (
+            'Return your analysis as a JSON object with exactly these keys:\n'
+            '- "score": integer between 0 and 100\n'
+            '- "explanation": string with a concise rationale\n'
+            'Respond with valid JSON only\u2014do not include any additional text '
+            'before or after the JSON object.'
+        )
+        return neg_prompt_builder.build(
+            entity=symbol, output_format_spec=output_format,
+        )
     if mode == "no_context":
         return NO_CONTEXT_PRIOR_TEMPLATE.format(category=category)
     if mode == "bias_amplified":
         return BIAS_AMPLIFIED_PRIOR_TEMPLATE.format(symbol=symbol, category=category)
-    raise ValueError(f"Unknown prior mode: {mode!r}. Use 'no_context' or 'bias_amplified'.")
+    raise ValueError(f"Unknown prior mode: {mode!r}. Use 'no_context', 'bias_amplified', or 'optimized'.")

@@ -20,6 +20,11 @@ import pandas as pd
 from cad import CADConfig, ContextAwareDecoder
 from cad.calibrator import CADCalibrator
 
+try:
+    from cad.discovery import NegativePromptBuilder
+except ImportError:
+    NegativePromptBuilder = None  # type: ignore[assignment,misc]
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -212,6 +217,7 @@ class TradingAgent:
         use_calibrator: bool = False,
         calibrator_alpha_min: float = 0.0,
         calibrator_alpha_max: float = 5.0,
+        neg_prompt_builder: Optional["NegativePromptBuilder"] = None,
     ) -> None:
         self.decoder = decoder
         self.calibrator = calibrator
@@ -223,6 +229,7 @@ class TradingAgent:
         self.use_calibrator = use_calibrator
         self.calibrator_alpha_min = calibrator_alpha_min
         self.calibrator_alpha_max = calibrator_alpha_max
+        self.neg_prompt_builder = neg_prompt_builder
 
     # ----- public API -----
 
@@ -287,6 +294,18 @@ class TradingAgent:
 
     def _build_prior(self, ticker: str, date: pd.Timestamp) -> str:
         date_str = f"{date:%Y-%m-%d}"
+        if self.cad_prior_mode == "optimized" and self.neg_prompt_builder is not None:
+            output_format = (
+                'Return a JSON object with exactly these keys:\n'
+                '- "signal": one of "buy", "sell", or "hold"\n'
+                '- "confidence": integer between 0 and 100\n'
+                '- "reasoning": string with a concise rationale (max 200 chars)\n\n'
+                'Respond with valid JSON only.'
+            )
+            return self.neg_prompt_builder.build(
+                entity=ticker, date=date_str,
+                output_format_spec=output_format,
+            )
         if self.cad_prior_mode == "no_context":
             return PRIOR_NO_CONTEXT.format(ticker=ticker)
         # bias_amplified (default)

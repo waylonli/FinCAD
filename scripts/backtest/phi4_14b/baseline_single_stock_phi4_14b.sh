@@ -30,7 +30,7 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
   --results-file "results/backtest/single_${TICKER}_baseline_phi4_14b.jsonl" \
   --summary-file "results/backtest/single_${TICKER}_baseline_phi4_14b_summary.json" \
   --values-csv "results/backtest/single_${TICKER}_baseline_phi4_14b_values.csv" \
-  > logs/baseline_single_stock_phi4_14b.log 2>&1 &
+  > "logs/baseline_single_stock_${TICKER}_phi4_14b.log" 2>&1 &
 
 echo "PID: $!"
-echo "Log: tail -f logs/baseline_single_stock_phi4_14b.log"
+echo "Log: tail -f logs/baseline_single_stock_${TICKER}_phi4_14b.log"

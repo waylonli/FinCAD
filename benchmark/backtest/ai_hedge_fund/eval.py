@@ -61,7 +61,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--cad-alpha", type=float, default=1.0)
     g.add_argument("--cad-top-p", type=float, default=1.0)
     g.add_argument("--cad-prior-mode", default="bias_amplified",
-                   choices=["no_context", "bias_amplified"])
+                   choices=["no_context", "bias_amplified", "optimized"])
+    g.add_argument("--optimized-instruction", type=str, default=None,
+                   help="Path to optimized instruction JSON (required when --cad-prior-mode=optimized)")
 
     # Generation
     g = p.add_argument_group("Generation")
@@ -568,6 +570,14 @@ def main(argv=None) -> None:
             use_chat_template=args.use_chat_template,
         )
 
+    neg_prompt_builder = None
+    if args.cad_prior_mode == "optimized":
+        from cad.discovery import NegativePromptBuilder
+        if args.optimized_instruction is None:
+            print("ERROR: --optimized-instruction is required when --cad-prior-mode=optimized.", file=sys.stderr)
+            sys.exit(1)
+        neg_prompt_builder = NegativePromptBuilder.from_file(args.optimized_instruction)
+
     agent = TradingAgent(
         decoder,
         calibrator=calibrator,
@@ -579,6 +589,7 @@ def main(argv=None) -> None:
         use_calibrator=args.use_calibrator,
         calibrator_alpha_min=args.calibrator_alpha_min,
         calibrator_alpha_max=args.calibrator_alpha_max,
+        neg_prompt_builder=neg_prompt_builder,
     )
 
     # ---- Run backtest ----

@@ -11,3 +11,10 @@ __all__ = [
     "CADCalibrator",
     "AlphaCalibrationResult",
 ]
+
+try:
+    from .discovery import NegativePromptBuilder, OptimizedInstruction
+
+    __all__ += ["NegativePromptBuilder", "OptimizedInstruction"]
+except ImportError:
+    pass

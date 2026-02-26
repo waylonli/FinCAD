@@ -39,7 +39,15 @@ def format_prompt(question: str, options: List[str]) -> str:
     )
 
 
-def format_prior_prompt(question: str, options: List[str], mode: str) -> str:
+def format_prior_prompt(question: str, options: List[str], mode: str, neg_prompt_builder=None) -> str:
+    if mode == "optimized" and neg_prompt_builder is not None:
+        rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
+        output_format = (
+            "Respond with the single letter of the correct option.\n\n"
+            f"Options:\n{rendered_options}\n\n"
+            "Answer:"
+        )
+        return neg_prompt_builder.build(output_format_spec=output_format)
     if mode == "recall":
         rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
         return (
@@ -86,6 +94,7 @@ def evaluate_split(
     cad_config: CADConfig,
     cad_prior_mode: str,
     results_file: Optional[IO[str]] = None,
+    neg_prompt_builder=None,
 ) -> Tuple[int, int]:
     correct = 0
     total = 0
@@ -120,6 +129,7 @@ def evaluate_split(
                 temperature,
                 cad_config,
                 cad_prior_mode,
+                neg_prompt_builder=neg_prompt_builder,
             )
             if isinstance(generations, str):
                 generations = [generations]
@@ -192,6 +202,7 @@ def generate_batch(
     temperature: float,
     cad_config: CADConfig,
     cad_prior_mode: str,
+    neg_prompt_builder=None,
 ):
     if decoding_mode == "cad":
         cad_config = CADConfig(
@@ -203,7 +214,7 @@ def generate_batch(
         if cad_prior_mode == "same":
             prior_prompts = prompts
         else:
-            prior_prompts = [format_prior_prompt(q, opts, cad_prior_mode) for q, opts in zip(questions, batch_options)]
+            prior_prompts = [format_prior_prompt(q, opts, cad_prior_mode, neg_prompt_builder=neg_prompt_builder) for q, opts in zip(questions, batch_options)]
         return cad_decoder.generate(prompts, prior_prompts, cad_config)
     # baseline
     inputs = adapter.tokenize(prompts)
@@ -233,7 +244,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "cad"], help="Decoding mode")
     parser.add_argument("--cad-alpha", type=float, default=1.0, help="CAD alpha for context-aware decoding")
     parser.add_argument("--cad-top-p", type=float, default=1.0, help="Top-p filtering for CAD")
-    parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only", "recall"], help="Prior prompt mode for CAD")
+    parser.add_argument("--cad-prior-mode", type=str, default="same", choices=["same", "question_only", "recall", "optimized"], help="Prior prompt mode for CAD")
+    parser.add_argument("--optimized-instruction", type=str, default=None, help="Path to optimized instruction JSON (required when --cad-prior-mode=optimized)")
     parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
     parser.add_argument("--compile", action="store_true", help="Apply torch.compile to the model (reduce-overhead mode)")
     return parser.parse_args()
@@ -264,6 +276,14 @@ def main():
     elif args.decoding_mode == "cad":
         print("Running context-aware decoding (CAD).")
 
+    neg_prompt_builder = None
+    if args.cad_prior_mode == "optimized":
+        from cad.discovery import NegativePromptBuilder
+        if args.optimized_instruction is None:
+            print("ERROR: --optimized-instruction is required when --cad-prior-mode=optimized.")
+            return
+        neg_prompt_builder = NegativePromptBuilder.from_file(args.optimized_instruction)
+
     ds = load_dataset("TIGER-Lab/MMLU-Pro", cache_dir=args.dataset_cache_dir)
     split = ds[args.split]
     total_samples = len(split) if args.max_samples is None else min(args.max_samples, len(split))
@@ -289,6 +309,7 @@ def main():
             cad_config=cad_config,
             cad_prior_mode=args.cad_prior_mode,
             results_file=results_fh,
+            neg_prompt_builder=neg_prompt_builder,
         )
     finally:
         if results_fh is not None:

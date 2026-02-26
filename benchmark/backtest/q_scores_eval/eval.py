@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args(argv=None) -> argparse.Namespace:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
 
     p = argparse.ArgumentParser(
         description="Financial backtest benchmark with CAD integration.",
@@ -82,7 +82,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "cad"])
     g.add_argument("--cad-alpha", type=float, default=1.0)
     g.add_argument("--cad-top-p", type=float, default=1.0)
-    g.add_argument("--cad-prior-mode", type=str, default="no_context", choices=["no_context", "bias_amplified"])
+    g.add_argument("--cad-prior-mode", type=str, default="no_context", choices=["no_context", "bias_amplified", "optimized"])
+    g.add_argument("--optimized-instruction", type=str, default=None,
+                   help="Path to optimized instruction JSON (required when --cad-prior-mode=optimized)")
 
     # Generation
     g = p.add_argument_group("Generation")
@@ -311,7 +313,16 @@ def _run_on_demand_scoring(
         chunk_overlap=args.chunk_overlap,
     )
 
-    scorer = HFFilingScorer(decoder, scoring_config, calibrator=calibrator)
+    neg_prompt_builder = None
+    if args.cad_prior_mode == "optimized":
+        from cad.discovery import NegativePromptBuilder
+        if args.optimized_instruction is None:
+            print("ERROR: --optimized-instruction is required when --cad-prior-mode=optimized.", file=sys.stderr)
+            sys.exit(1)
+        neg_prompt_builder = NegativePromptBuilder.from_file(args.optimized_instruction)
+
+    scorer = HFFilingScorer(decoder, scoring_config, calibrator=calibrator,
+                            neg_prompt_builder=neg_prompt_builder)
 
     # Collect filings
     reports_root = data_root / args.reports_dir
