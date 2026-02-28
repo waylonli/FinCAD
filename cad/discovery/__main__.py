@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--date-range-start", type=str, default="2005-01-01")
     parser.add_argument("--date-range-end", type=str, default="2015-01-01")
     parser.add_argument("--output-dir", type=str, default="results/discovery")
+    parser.add_argument(
+        "--server-url", type=str, default=None,
+        help="OpenAI-compatible API base URL for a local model server (e.g. vLLM). "
+             "Required when --model-name is a local path.",
+    )
     return parser.parse_args()
 
 
@@ -58,6 +63,7 @@ def main() -> None:
                 min_abs_return=args.min_abs_return,
             ),
             output_dir=args.output_dir,
+            server_url=args.server_url,
         )
     )
 

@@ -157,15 +157,13 @@ def build_prior_prompt(
         ``NegativePromptBuilder`` instance (required when mode is ``"optimized"``).
     """
     if mode == "optimized" and neg_prompt_builder is not None:
-        output_format = (
-            'Return your analysis as a JSON object with exactly these keys:\n'
-            '- "score": integer between 0 and 100\n'
-            '- "explanation": string with a concise rationale\n'
-            'Respond with valid JSON only\u2014do not include any additional text '
-            'before or after the JSON object.'
-        )
+        # Extract the full task instruction from the category prompt,
+        # stripping the filing text placeholder so both x_ctx and x_prior
+        # share the same task framing and output format.
+        full_prompt = DEFAULT_CATEGORY_PROMPTS.get(category, "")
+        task_instruction = full_prompt.split("\nThe input annual report is as follows:")[0].strip()
         return neg_prompt_builder.build(
-            entity=symbol, output_format_spec=output_format,
+            entity=symbol, task_prompt=task_instruction,
         )
     if mode == "no_context":
         return NO_CONTEXT_PRIOR_TEMPLATE.format(category=category)

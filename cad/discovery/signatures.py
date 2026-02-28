@@ -10,9 +10,8 @@ except ImportError:
 if dspy is not None:
 
     class MemoryProbe(dspy.Signature):
-        """Using only your internal knowledge and training data, predict
-        whether the stock will go up or down after the given date.
-        Think about everything you know about this entity's trajectory."""
+        """Using only your internal knowledge and training data, recall
+        what you know about this entity's historical trajectory."""
 
         entity: str = dspy.InputField(desc="Stock ticker symbol")
         date: str = dspy.InputField(desc="Date in YYYY-MM-DD format")

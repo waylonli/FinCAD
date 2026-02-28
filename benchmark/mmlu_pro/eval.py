@@ -47,7 +47,7 @@ def format_prior_prompt(question: str, options: List[str], mode: str, neg_prompt
             f"Options:\n{rendered_options}\n\n"
             "Answer:"
         )
-        return neg_prompt_builder.build(output_format_spec=output_format)
+        return neg_prompt_builder.build(task_prompt=output_format)
     if mode == "recall":
         rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
         return (

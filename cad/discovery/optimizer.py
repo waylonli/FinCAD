@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from .config import CalibrationDatasetConfig, DiscoveryConfig, OptimizedInstruction
@@ -51,10 +52,31 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
     logger.info("Train: %d, Val: %d", len(trainset), len(valset))
 
     # Step 3: Configure DSPy LM
-    model_id = f"huggingface/{cfg.model_name}"
-    lm = dspy.LM(model=model_id)
+    # Suppress LiteLLM warning: "`max_retries` is not supported. It will be ignored."
+    logging.getLogger("litellm.llms.huggingface.chat.transformation").setLevel(logging.ERROR)
+
+    is_local_path = cfg.model_name.startswith(("/", "~", ".")) or os.path.exists(cfg.model_name)
+
+    if is_local_path and not cfg.server_url:
+        raise ValueError(
+            f"--model-name looks like a local path ({cfg.model_name}) but no "
+            f"--server-url was provided. Local models require an OpenAI-compatible "
+            f"server (e.g. vLLM). Start one with:\n"
+            f"  python -m vllm.entrypoints.openai.api_server --model {cfg.model_name}\n"
+            f"Then pass: --server-url http://localhost:8000/v1"
+        )
+
+    if cfg.server_url:
+        # Local model served via vLLM / TGI — connect through OpenAI-compatible API
+        model_id = f"openai/{cfg.model_name}"
+        lm = dspy.LM(model=model_id, api_base=cfg.server_url, api_key="EMPTY")
+        logger.info("Configured DSPy LM: %s via %s", model_id, cfg.server_url)
+    else:
+        # HuggingFace Hub model — use remote Inference API
+        model_id = f"huggingface/{cfg.model_name}"
+        lm = dspy.LM(model=model_id)
+        logger.info("Configured DSPy LM: %s", model_id)
     dspy.configure(lm=lm)
-    logger.info("Configured DSPy LM: %s", model_id)
 
     # Step 4: Run optimizer
     module = MemoryProbeModule()

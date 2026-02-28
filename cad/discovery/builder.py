@@ -1,4 +1,4 @@
-"""NegativePromptBuilder: combine optimized instruction with output format spec."""
+"""NegativePromptBuilder: combine optimized instruction with task prompt."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,9 +10,12 @@ from .registry import load_instruction
 class NegativePromptBuilder:
     """Build a negative (prior) prompt from an optimized instruction.
 
-    The negative prompt is: ``[Memory Activation Instruction] + [Output Format Spec]``.
-    The instruction is model-specific but task-agnostic; the output format is
-    copied from the context prompt to preserve logit alignment.
+    The negative prompt is: ``T*(s, t) ⊕ F_task``.
+
+    *  ``T*`` is the optimised memory-activation instruction (model-specific,
+       task-agnostic), combined with entity/date fields.
+    *  ``F_task`` is the task-specific instruction copied from the context
+       prompt (task framing + output format), ensuring logit alignment.
     """
 
     def __init__(self, instruction: OptimizedInstruction) -> None:
@@ -40,12 +43,24 @@ class NegativePromptBuilder:
         self,
         entity: str = "",
         date: str = "",
-        output_format_spec: str = "",
+        task_prompt: str = "",
     ) -> str:
         """Build the full negative prompt.
 
-        Substitutes ``{entity}`` and ``{date}`` placeholders in the optimized
-        instruction, then appends the output format specification.
+        Structure::
+
+            [Optimised memory-activation instruction T*]
+
+            Entity: {entity}
+            Date: {date}
+
+            [Task-specific instruction F_task]
+
+        The entity/date are appended as structured fields, mirroring how
+        DSPy presented them as InputFields during optimisation.  ``F_task``
+        is the task-specific instruction (task framing + output format)
+        copied from the context prompt to ensure logit alignment
+        (see methodology §3.1, Eq. 2).
 
         Parameters
         ----------
@@ -54,16 +69,23 @@ class NegativePromptBuilder:
             (e.g. MCQ, math).
         date:
             Date string. Empty string for non-temporal tasks.
-        output_format_spec:
-            The output format portion of the context prompt, ensuring logit
-            alignment between context and prior streams.
+        task_prompt:
+            The task-specific instruction from the context prompt, including
+            both the task framing and output format specification.  Ensures
+            logit alignment between context and prior streams.
         """
-        text = self._instruction.instruction
-        text = text.replace("{entity}", entity)
-        text = text.replace("{date}", date)
+        parts = [self._instruction.instruction.rstrip()]
 
-        parts = [text.rstrip()]
-        if output_format_spec:
-            parts.append(output_format_spec.strip())
+        # Append entity/date as structured fields
+        if entity or date:
+            fields = []
+            if entity:
+                fields.append(f"Entity: {entity}")
+            if date:
+                fields.append(f"Date: {date}")
+            parts.append("\n".join(fields))
+
+        if task_prompt:
+            parts.append(task_prompt.strip())
 
         return "\n\n".join(parts)

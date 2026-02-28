@@ -86,7 +86,7 @@ def format_prior_prompt(query: str, options: List[str], mode: str, neg_prompt_bu
             f"Options:\n{rendered_options}\n\n"
             "Answer:"
         )
-        return neg_prompt_builder.build(output_format_spec=output_format)
+        return neg_prompt_builder.build(task_prompt=output_format)
     if mode == "recall":
         rendered_options = "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(options))
         return (
@@ -333,6 +333,9 @@ def parse_args() -> argparse.Namespace:
                         help="Attention implementation (e.g. flash_attention_2, sdpa). Auto-detected if omitted.")
     parser.add_argument("--compile", action="store_true",
                         help="Apply torch.compile to the model (reduce-overhead mode)")
+    parser.add_argument("--cache-file", type=str, default=None,
+                        help="JSON cache for per-subset results (enables resume on interruption). "
+                             "Auto-derived from --results-file if omitted.")
     return parser.parse_args()
 
 
@@ -394,7 +397,22 @@ def main():
             return
         neg_prompt_builder = NegativePromptBuilder.from_file(args.optimized_instruction)
 
-    results_fh = open(args.results_file, "w") if args.results_file else None
+    # ------------------------------------------------------------------
+    # Cache setup (resume on interruption)
+    # ------------------------------------------------------------------
+    cache_path = args.cache_file
+    if cache_path is None and args.results_file is not None:
+        cache_path = str(Path(args.results_file).with_suffix(".cache.json"))
+
+    cache: dict = {}
+    if cache_path and Path(cache_path).exists():
+        with open(cache_path) as f:
+            cache = json.load(f)
+        print(f"Loaded cache with {len(cache)} completed subset(s) from {cache_path}")
+
+    # Append to JSONL if resuming, otherwise overwrite
+    results_mode = "a" if cache else "w"
+    results_fh = open(args.results_file, results_mode) if args.results_file else None
 
     # ------------------------------------------------------------------
     # Evaluate each subset
@@ -403,6 +421,14 @@ def main():
 
     try:
         for subset_name in subsets:
+            # Skip cached subsets
+            if subset_name in cache:
+                c, t = cache[subset_name]["correct"], cache[subset_name]["total"]
+                acc = c / t if t else 0.0
+                print(f"\n[CACHED] {subset_name}: {c}/{t} = {acc:.2%}")
+                summary.append((subset_name, c, t))
+                continue
+
             print(f"\n{'=' * 60}")
             print(f"Subset: {subset_name}")
             print(f"{'=' * 60}")
@@ -429,6 +455,15 @@ def main():
             acc = correct / total if total else 0.0
             summary.append((subset_name, correct, total))
             print(f"  {subset_name}: {correct}/{total} = {acc:.2%}")
+
+            # Persist to cache after each subset
+            cache[subset_name] = {"correct": correct, "total": total}
+            if cache_path:
+                Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
+                with open(cache_path, "w") as f:
+                    json.dump(cache, f, indent=2)
+            if results_fh is not None:
+                results_fh.flush()
     finally:
         if results_fh is not None:
             results_fh.close()

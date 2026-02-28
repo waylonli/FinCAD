@@ -295,16 +295,18 @@ class TradingAgent:
     def _build_prior(self, ticker: str, date: pd.Timestamp) -> str:
         date_str = f"{date:%Y-%m-%d}"
         if self.cad_prior_mode == "optimized" and self.neg_prompt_builder is not None:
-            output_format = (
-                'Return a JSON object with exactly these keys:\n'
+            task_instruction = (
+                'You are a quantitative analyst evaluating a single stock.\n\n'
+                'Return your analysis as a JSON object with exactly these keys:\n'
                 '- "signal": one of "buy", "sell", or "hold"\n'
                 '- "confidence": integer between 0 and 100\n'
                 '- "reasoning": string with a concise rationale (max 200 chars)\n\n'
-                'Respond with valid JSON only.'
+                'Respond with valid JSON only.\n\n'
+                'What is your trading signal?'
             )
             return self.neg_prompt_builder.build(
                 entity=ticker, date=date_str,
-                output_format_spec=output_format,
+                task_prompt=task_instruction,
             )
         if self.cad_prior_mode == "no_context":
             return PRIOR_NO_CONTEXT.format(ticker=ticker)

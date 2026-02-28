@@ -39,6 +39,7 @@ class DiscoveryConfig:
     num_trials: int = 30
     calibration: CalibrationDatasetConfig = field(default_factory=CalibrationDatasetConfig)
     output_dir: str = "results/discovery"
+    server_url: Optional[str] = None
 
 
 @dataclass

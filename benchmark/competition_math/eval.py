@@ -32,7 +32,7 @@ def format_prompt(question: str) -> str:
 def format_prior_prompt(question: str, mode: str, neg_prompt_builder=None) -> str:
     if mode == "optimized" and neg_prompt_builder is not None:
         output_format = "Provide the final numeric answer after '####'.\n\nAnswer:"
-        return neg_prompt_builder.build(output_format_spec=output_format)
+        return neg_prompt_builder.build(task_prompt=output_format)
     if mode == "recall":
         return "Recall from your pretrained knowledge. What is the numeric answer?\n\nAnswer:"
     if mode == "question_only":
