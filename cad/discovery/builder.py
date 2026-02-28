@@ -74,9 +74,14 @@ class NegativePromptBuilder:
             both the task framing and output format specification.  Ensures
             logit alignment between context and prior streams.
         """
-        parts = [self._instruction.instruction.rstrip()]
+        # Fill any {entity}/{date} placeholders that MIPROv2 may have
+        # embedded in the optimised instruction text.
+        text = self._instruction.instruction
+        text = text.replace("{entity}", entity)
+        text = text.replace("{date}", date)
+        parts = [text.rstrip()]
 
-        # Append entity/date as structured fields
+        # Also append entity/date as structured fields
         if entity or date:
             fields = []
             if entity:

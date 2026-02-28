@@ -57,20 +57,16 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
 
     is_local_path = cfg.model_name.startswith(("/", "~", ".")) or os.path.exists(cfg.model_name)
 
-    if is_local_path and not cfg.server_url:
-        raise ValueError(
-            f"--model-name looks like a local path ({cfg.model_name}) but no "
-            f"--server-url was provided. Local models require an OpenAI-compatible "
-            f"server (e.g. vLLM). Start one with:\n"
-            f"  python -m vllm.entrypoints.openai.api_server --model {cfg.model_name}\n"
-            f"Then pass: --server-url http://localhost:8000/v1"
-        )
-
     if cfg.server_url:
         # Local model served via vLLM / TGI — connect through OpenAI-compatible API
         model_id = f"openai/{cfg.model_name}"
         lm = dspy.LM(model=model_id, api_base=cfg.server_url, api_key="EMPTY")
         logger.info("Configured DSPy LM: %s via %s", model_id, cfg.server_url)
+    elif is_local_path:
+        # Local model path — load in-process with transformers (no server needed)
+        from .lm_local import TransformersLM
+        lm = TransformersLM(cfg.model_name)
+        logger.info("Configured DSPy LM: in-process transformers (%s)", cfg.model_name)
     else:
         # HuggingFace Hub model — use remote Inference API
         model_id = f"huggingface/{cfg.model_name}"
@@ -93,6 +89,8 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
             trainset=trainset,
             valset=valset,
             num_trials=cfg.num_trials,
+            max_bootstrapped_demos=0,
+            max_labeled_demos=0,
         )
     elif cfg.optimizer == "COPRO":
         optimizer = dspy.COPRO(

@@ -33,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=str, default="results/discovery")
     parser.add_argument(
         "--server-url", type=str, default=None,
-        help="OpenAI-compatible API base URL for a local model server (e.g. vLLM). "
-             "Required when --model-name is a local path.",
+        help="OpenAI-compatible API base URL (e.g. vLLM). "
+             "If omitted, local models are loaded in-process with transformers.",
     )
     return parser.parse_args()
 
