@@ -18,6 +18,5 @@ if dspy is not None:
         """Using only your internal knowledge and training data, recall
         what you know about this entity's historical trajectory."""
 
-        entity: str = dspy.InputField(desc="Stock ticker symbol")
-        date: str = dspy.InputField(desc="Date in YYYY-MM-DD format")
-        direction: str = dspy.OutputField(desc="Either 'up' or 'down'")
+        task: str = dspy.InputField(desc="Task instruction")
+        direction: str = dspy.OutputField(desc="Your prediction")

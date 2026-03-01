@@ -91,6 +91,10 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
             num_trials=cfg.num_trials,
             max_bootstrapped_demos=0,
             max_labeled_demos=0,
+            # Prevent proposer from seeing training data values (e.g. F_task text).
+            # It only sees field names/descriptions + the current instruction.
+            data_aware_proposer=False,
+            fewshot_aware_proposer=False,
         )
     elif cfg.optimizer == "COPRO":
         optimizer = dspy.COPRO(
@@ -111,7 +115,7 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
     correct = 0
     for ex in valset:
         try:
-            pred = compiled(entity=ex.entity, date=ex.date)
+            pred = compiled(task=ex.task)
             correct += bias_activation_score(ex, pred)
         except Exception:
             pass

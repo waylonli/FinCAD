@@ -84,7 +84,7 @@ The “prior” is not neutral. We explicitly **trigger cheating** in the prior 
 
 ## Adversarial Bias Discovery via DSPy (`cad/discovery/`)
 
-The negative prompt in CAD has the structure: `[Memory Activation Instruction] + [Output Format Spec]`. The instruction is **model-specific but task-agnostic** — it needs to maximally activate the model's parametric memory regardless of whether the downstream task is trading, scoring filings, MCQ, or math. The output format spec is **task-specific** — it is copied verbatim from the context prompt to preserve logit alignment for the CAD subtraction.
+The negative prompt in CAD has the structure: `[Memory Activation Instruction T*] + [Task Instruction F_task]`. T\* is **model-specific but task-agnostic** — it maximally activates the model's parametric memory regardless of whether the downstream task is trading, scoring filings, MCQ, or math. F\_task is **task-specific** — it includes the task framing and output format, copied from the context prompt to preserve logit alignment for the CAD subtraction.
 
 This module uses **discrete prompt optimization** (DSPy MIPROv2 / COPRO) to find the optimal memory activation instruction for a given model. The instruction is optimized once per model, then reused across all tasks.
 
@@ -105,9 +105,9 @@ This yields ~200 balanced examples where the ground-truth direction is unambiguo
 
 **Stage 2: DSPy prompt optimization**
 
-The calibration examples are converted to `dspy.Example(entity=ticker, date=date, direction=direction)` and split 80/20 into train/val sets.
+Each calibration example is converted to a `dspy.Example(task=..., direction=direction)` where the `task` field contains the entity, date, and a fixed calibration instruction (`F_calib`): *"Predict whether the stock price went up or down after this date."* Examples are split 80/20 into train/val sets.
 
-The DSPy `MemoryProbe` signature asks the model: *"Using only your internal knowledge and training data, predict whether the stock will go up or down after the given date."* The docstring of this signature is what MIPROv2 rewrites during optimization.
+The DSPy `MemoryProbe` signature has a single input field `task` (generic description: "Task instruction") and output field `direction` (generic description: "Your prediction"). MIPROv2 only optimizes the signature's docstring (the memory-activation instruction T\*). To ensure T\* stays **task-agnostic**, the proposer's data-awareness and few-shot-awareness are disabled (`data_aware_proposer=False, fewshot_aware_proposer=False`), so the proposer never sees the actual training data values containing stock tickers or calibration task text. It only sees the generic field names and the current seed instruction. The evaluation metric, however, runs the full input through the model, so candidates are scored on actual memory-activation performance.
 
 The metric `bias_activation_score` returns `1.0` if the model's predicted direction matches the ground-truth future return, `0.0` otherwise. A higher score means the instruction more effectively activates memorized knowledge — exactly the bias we want the prior prompt to elicit so CAD can subtract it.
 
@@ -118,14 +118,15 @@ MIPROv2 explores `num_candidates` instruction variants over `num_trials` evaluat
 `NegativePromptBuilder` loads the saved instruction and constructs the full prior prompt:
 
 ```
-[Optimized Memory Activation Instruction]    ← model-specific, task-agnostic
-                                              (with {entity} and {date} placeholders filled)
+[Optimized Memory Activation Instruction T*]  ← model-specific, task-agnostic
+                                               (with {entity} and {date} placeholders filled)
 
-[Output Format Spec]                         ← task-specific, copied from context prompt
-                                              (e.g., "Respond as JSON with signal, confidence, reasoning")
+[Task Instruction F_task]                     ← task-specific, copied from context prompt
+                                               (e.g., "Analyse this stock and return JSON
+                                                with signal, confidence, reasoning")
 ```
 
-The output format spec must match the context prompt's format to keep the logit distributions aligned for `(1+α) * logits(context) − α * logits(prior)`.
+F\_task must match the context prompt's task framing and output format to keep the logit distributions aligned for `(1+α) * logits(context) − α * logits(prior)`.
 
 ### Module structure
 
@@ -133,17 +134,18 @@ The output format spec must match the context prompt's format to keep the logit 
 |------|---------|
 | `config.py` | Dataclasses: `CalibrationExample`, `CalibrationDatasetConfig`, `DiscoveryConfig`, `OptimizedInstruction` |
 | `calibration_data.py` | `build_calibration_dataset()` — price CSV → labelled examples; `to_dspy_examples()` — convert to DSPy format |
-| `signatures.py` | `MemoryProbe(entity, date) → direction` — DSPy Signature whose docstring is optimized |
+| `signatures.py` | `MemoryProbe(task) → direction` — DSPy Signature whose docstring (T\*) is optimized |
 | `modules.py` | `MemoryProbeModule` — DSPy Module wrapping `Predict(MemoryProbe)` with up/down normalization |
 | `metrics.py` | `bias_activation_score(example, prediction)` — 1.0 if direction matches, 0.0 otherwise |
 | `optimizer.py` | `run_optimization(cfg)` — full pipeline: build data → split → configure LM → run MIPROv2/COPRO → evaluate → save |
-| `builder.py` | `NegativePromptBuilder` — loads optimized instruction, substitutes `{entity}`/`{date}`, appends output format |
+| `builder.py` | `NegativePromptBuilder` — loads optimized instruction, substitutes `{entity}`/`{date}`, appends task instruction F\_task |
 | `registry.py` | `save_instruction()` / `load_instruction()` — JSON persistence at `results/discovery/{model_slug}.json` |
 | `__main__.py` | CLI entry point: `python -m cad.discovery` |
 
 ### CLI usage
 
 ```bash
+# Option 1: In-process with HuggingFace transformers (no server needed)
 python -m cad.discovery \
   --model-name /path/to/model \
   --price-csv dataset/backtest-data/price/price_data.csv \
@@ -152,9 +154,16 @@ python -m cad.discovery \
   --forward-days 63 --max-examples 200 --min-abs-return 0.05 \
   --date-range-start 2005-01-01 --date-range-end 2015-01-01 \
   --output-dir results/discovery
+
+# Option 2: Via a running vLLM / TGI server
+python -m cad.discovery \
+  --model-name /path/to/model \
+  --server-url http://localhost:8234/v1 \
+  --price-csv dataset/backtest-data/price/price_data.csv \
+  --num-trials 30 --num-candidates 10
 ```
 
-The cluster script `scripts/optimize_prior.sh` runs optimization for both phi-4 (14B) and gemma-3-12b-it sequentially.
+The cluster script `scripts/optimize_prior.sh` runs optimization for both phi-4 (14B) and gemma-3-12b-it sequentially. Set `BACKEND=vllm` to auto-start a vLLM server per model, or `BACKEND=transformers` (default) to load in-process.
 
 ### Using the optimized instruction in benchmarks
 
@@ -170,7 +179,7 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
   --optimized-instruction results/discovery/phi-4.json
 ```
 
-The `NegativePromptBuilder` is constructed from the JSON file and threaded through each benchmark's prompt-building function. The builder substitutes entity/date placeholders and appends the task-specific output format (JSON signal format for trading, single-letter for MCQ, numeric for math, etc.).
+The `NegativePromptBuilder` is constructed from the JSON file and threaded through each benchmark's prompt-building function. The builder substitutes entity/date placeholders and appends the task-specific instruction F\_task (full task framing + output format: JSON signal for trading, single-letter for MCQ, numeric for math, etc.).
 
 ### DSPy API notes
 
@@ -314,13 +323,21 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
 
 ### 4) Optimize prior (DSPy discovery)
 ```bash
-# Run locally (single model)
+# Run locally — in-process with transformers (no server needed)
 python -m cad.discovery \
   --model-name /path/to/model \
   --price-csv dataset/backtest-data/price/price_data.csv \
   --num-trials 30 --num-candidates 10
 
+# Run locally — via a running vLLM server
+python -m cad.discovery \
+  --model-name /path/to/model \
+  --server-url http://localhost:8234/v1 \
+  --price-csv dataset/backtest-data/price/price_data.csv \
+  --num-trials 30 --num-candidates 10
+
 # Cluster: optimize for phi-4 and gemma-3 sequentially
+# Set BACKEND=vllm to auto-start vLLM, or BACKEND=transformers (default)
 qsub scripts/optimize_prior.sh
 ```
 

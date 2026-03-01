@@ -95,12 +95,18 @@ def to_dspy_examples(
     if dspy is None:
         raise ImportError("dspy is required for to_dspy_examples(). Install with: pip install dspy")
 
+    from .signatures import CALIBRATION_TASK
+
     dspy_examples = []
     for ex in examples:
+        task_text = (
+            f"Entity: {ex.ticker}\n"
+            f"Date: {ex.date}\n\n"
+            f"{CALIBRATION_TASK}"
+        )
         dspy_ex = dspy.Example(
-            entity=ex.ticker,
-            date=ex.date,
+            task=task_text,
             direction=ex.direction,
-        ).with_inputs("entity", "date")
+        ).with_inputs("task")
         dspy_examples.append(dspy_ex)
     return dspy_examples
