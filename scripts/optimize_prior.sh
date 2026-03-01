@@ -18,7 +18,7 @@ OUTPUT_DIR=results/discovery
 # Toggle: "transformers" (in-process, no server) or "vllm" (auto-start server)
 BACKEND="${BACKEND:-transformers}"
 VLLM_PORT=8234
-COMMON_ARGS="--optimizer MIPROv2 --num-candidates 10 --num-trials 30 \
+COMMON_ARGS="--optimizer MIPROv2 --num-candidates 25 --num-trials 50 \
   --forward-days 63 --max-examples 200 --min-abs-return 0.05 \
   --date-range-start 2005-01-01 --date-range-end 2015-01-01"
 

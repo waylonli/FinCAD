@@ -46,6 +46,13 @@ def main() -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
+    # Load .env for API keys (OPENAI_API_KEY, etc.)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
     from . import CalibrationDatasetConfig, DiscoveryConfig, run_optimization
 
     result = run_optimization(

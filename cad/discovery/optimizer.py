@@ -46,6 +46,12 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
     dspy_examples = to_dspy_examples(examples)
 
     # Step 2: Train/val split (80/20)
+    # Shuffle to avoid class-ordering artefacts: build_calibration_dataset()
+    # returns all "up" examples followed by all "down", so a naïve slice
+    # would give a validation set that is 100% one class.
+    import random
+    random.Random(42).shuffle(dspy_examples)
+
     split = int(len(dspy_examples) * 0.8)
     trainset = dspy_examples[:split]
     valset = dspy_examples[split:]
@@ -56,6 +62,9 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
     logging.getLogger("litellm.llms.huggingface.chat.transformation").setLevel(logging.ERROR)
 
     is_local_path = cfg.model_name.startswith(("/", "~", ".")) or os.path.exists(cfg.model_name)
+    is_openai = cfg.model_name.startswith("openai/") or cfg.model_name.startswith(
+        ("gpt-", "o1", "o3", "o4", "chatgpt-")
+    )
 
     if cfg.server_url:
         # Local model served via vLLM / TGI — connect through OpenAI-compatible API
@@ -67,6 +76,11 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
         from .lm_local import TransformersLM
         lm = TransformersLM(cfg.model_name)
         logger.info("Configured DSPy LM: in-process transformers (%s)", cfg.model_name)
+    elif is_openai:
+        # OpenAI API model (e.g. gpt-5-mini, openai/gpt-4o)
+        model_id = cfg.model_name if "/" in cfg.model_name else f"openai/{cfg.model_name}"
+        lm = dspy.LM(model=model_id)
+        logger.info("Configured DSPy LM: %s", model_id)
     else:
         # HuggingFace Hub model — use remote Inference API
         model_id = f"huggingface/{cfg.model_name}"
@@ -91,8 +105,13 @@ def run_optimization(cfg: DiscoveryConfig) -> OptimizedInstruction:
             num_trials=cfg.num_trials,
             max_bootstrapped_demos=0,
             max_labeled_demos=0,
-            # Prevent proposer from seeing training data values (e.g. F_task text).
-            # It only sees field names/descriptions + the current instruction.
+            # Blind the proposer to task-specific information so that T*
+            # remains task-agnostic.
+            # program_aware=True: proposer sees generic source code + field
+            #   names/descs (all sanitised: "answer: one word", no domain hints)
+            # data_aware=False:   proposer does NOT see training data values
+            #   (e.g. ticker names, "up"/"down" labels, dates)
+            # fewshot_aware=False: proposer does NOT see bootstrap traces
             data_aware_proposer=False,
             fewshot_aware_proposer=False,
         )

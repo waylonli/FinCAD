@@ -89,24 +89,26 @@ def to_dspy_examples(
 ) -> list:
     """Convert calibration examples to ``dspy.Example`` objects.
 
-    Each example has inputs ``entity`` (ticker) and ``date``, with label
-    ``direction`` (``"up"`` or ``"down"``).
+    Each example has a single input ``task`` (containing entity, date, and
+    calibration instruction), with label ``answer`` (``"up"`` or ``"down"``).
     """
     if dspy is None:
         raise ImportError("dspy is required for to_dspy_examples(). Install with: pip install dspy")
 
-    from .signatures import CALIBRATION_TASK
-
     dspy_examples = []
     for ex in examples:
+        # Only include entity, date, and output options — NOT a prediction
+        # instruction.  This forces T* to be the critical signal that
+        # activates memory.  "Options: up, down" constrains the model's
+        # output format but is invisible to the proposer (data_aware=False).
         task_text = (
             f"Entity: {ex.ticker}\n"
-            f"Date: {ex.date}\n\n"
-            f"{CALIBRATION_TASK}"
+            f"Date: {ex.date}\n"
+            f"Options: up, down"
         )
         dspy_ex = dspy.Example(
             task=task_text,
-            direction=ex.direction,
+            answer=ex.direction,
         ).with_inputs("task")
         dspy_examples.append(dspy_ex)
     return dspy_examples

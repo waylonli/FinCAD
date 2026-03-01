@@ -7,23 +7,14 @@ except ImportError:
     dspy = None  # type: ignore[assignment]
 
 if dspy is not None:
-    from .signatures import MemoryProbe, CALIBRATION_TASK
+    from .signatures import MemoryProbe
 
     class MemoryProbeModule(dspy.Module):
-        """Predict stock direction from parametric memory alone."""
+        """Predict outcome from parametric memory alone."""
 
         def __init__(self) -> None:
             super().__init__()
             self.probe = dspy.Predict(MemoryProbe)
 
         def forward(self, task: str) -> dspy.Prediction:
-            pred = self.probe(task=task)
-            # Normalize direction to "up" or "down"
-            raw = pred.direction.strip().lower()
-            if "up" in raw:
-                pred.direction = "up"
-            elif "down" in raw:
-                pred.direction = "down"
-            else:
-                pred.direction = raw
-            return pred
+            return self.probe(task=task)
