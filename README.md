@@ -11,42 +11,28 @@ Build practical, inference-time mechanisms that:
 
 ## What’s in the repo
 
-**1) Activation steering (legacy / optional)**
-- Module: `steering/`
-- Goal: steer the model away from “memory recall” and toward “reasoning” using probe-derived vectors.
-- Profiles: `recall_suppression` and `entity_defocus`.
-- Still available, but CAD is the current research focus.
-
-**2) Context-Aware Decoding (CAD)**
+**1) Context-Aware Decoding (CAD)**
 - Module: `cad/`
 - Goal: force generation to depend on provided context by subtracting a biased “prior” from the context-conditioned logits.
 - Supports **Bias-Amplified CAD** and **Entity-Adaptive α** via `CADCalibrator`.
 - Prior modes: `bias_amplified`, `no_context`, `recall`, `optimized` (via `--cad-prior-mode`).
 
-**2b) Adversarial Bias Discovery (DSPy optimization)**
+**1b) Adversarial Bias Discovery (DSPy optimization)**
 - Module: `cad/discovery/`
 - Goal: automatically optimize the memory-activation instruction in the negative prompt using DSPy MIPROv2/COPRO.
 - Calibrates on historical price data (known future directions) to find the instruction that maximally activates parametric memory.
 - See [Adversarial Bias Discovery](#adversarial-bias-discovery-via-dspy-caddiscovery) for full details.
 
-**3) General benchmarks (safety check)**
+**2) General benchmarks (safety check)**
 - Folder: `benchmark/gsm8k/`, `benchmark/mmlu_pro/`, `benchmark/competition_math/`, `benchmark/humaneval/`
 - Benchmarks implemented: GSM8K, MMLU-Pro, MATH-500, HumanEval.
 - Each script supports baseline, steering, and CAD via `--decoding-mode`.
 - Purpose: verify that CAD does not degrade general reasoning ability.
 
-**4) Financial backtesting (honesty evaluation)**
+**3) Financial backtesting (honesty evaluation)**
 - Folder: `benchmark/backtest/`
 - Two complementary approaches (see [Financial Backtesting](#financial-backtesting) below).
 - Purpose: verify that CAD suppresses look-ahead bias by comparing `Returns_CAD < Returns_Baseline`.
-
-**5) Cluster scripts**
-- Folder: `scripts/`
-- Run scripts under:
-  - `scripts/Eddie/general_benchmark/qwen2_5/`
-  - `scripts/lightspeed/general_benchmark/qwen2_5/`
-  - `scripts/lightspeed/backtest/qwen2_5_14b/`
-  - `scripts/lightspeed/backtest/phi4_14b/`
 
 ## Key CAD ideas in this repo
 
@@ -74,13 +60,6 @@ The “prior” is not neutral. We explicitly **trigger cheating** in the prior 
 - Uses a **bias-amplified yes/no prompt** (e.g., “Ignore the context… did NVDA massively outperform?”).
 - Computes entropy over `{yes,no}` and maps to α:  
   `alpha = alpha_min + (alpha_max - alpha_min) * (1 - entropy)`.
-
-### `steering/`
-- **SteeringController** scans layers, trains probes, and applies vector hooks.
-- Profiles in `steering/datasets.py`:
-  - `recall_suppression`: historical “memory vs logic” pairs.
-  - `entity_defocus`: ticker/name vs generic descriptor pairs.
-- Vectors can be cached via `save_vectors()` / `load_vectors()`.
 
 ## Adversarial Bias Discovery via DSPy (`cad/discovery/`)
 
