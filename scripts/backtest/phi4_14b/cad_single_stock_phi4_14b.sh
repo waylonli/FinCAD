@@ -25,14 +25,15 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
   --end-date 2020-01-01 \
   --rebalance-freq B \
   --decoding-mode cad \
-  --cad-alpha 1.0 \
-  --cad-prior-mode bias_amplified \
+  --cad-prior-mode optimized \
+  --optimized-instruction results/discovery/phi-4.json \
+  --use-calibrator \
   --temperature 0.0 \
   --max-new-tokens 256 \
   --results-file "results/backtest/single_${TICKER}_cad_phi4_14b.jsonl" \
   --summary-file "results/backtest/single_${TICKER}_cad_phi4_14b_summary.json" \
-  --values-csv "results/backtest/single_${TICKER}_cad_phi4_14b_values.csv"
-#  > "logs/cad_single_stock_${TICKER}_phi4_14b.log" 2>&1 &
+  --values-csv "results/backtest/single_${TICKER}_cad_phi4_14b_values.csv" \
+  > "logs/cad_single_stock_${TICKER}_phi4_14b.log" 2>&1 &
 
 echo "PID: $!"
 echo "Log: tail -f logs/cad_single_stock_${TICKER}_phi4_14b.log"

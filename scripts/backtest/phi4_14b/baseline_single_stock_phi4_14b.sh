@@ -21,7 +21,7 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
   --attn-implementation flash_attention_2 \
   --ticker "${TICKER}" \
   --price-csv dataset/backtest-data/price/price_data.csv \
-  --start-date 2010-10-01 \
+  --start-date 2010-01-01 \
   --end-date 2020-01-01 \
   --rebalance-freq B \
   --decoding-mode baseline \

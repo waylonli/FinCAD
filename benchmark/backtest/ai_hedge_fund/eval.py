@@ -73,8 +73,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Calibrator
     g = p.add_argument_group("Calibrator")
     g.add_argument("--use-calibrator", action="store_true")
-    g.add_argument("--calibrator-alpha-min", type=float, default=0.0)
-    g.add_argument("--calibrator-alpha-max", type=float, default=5.0)
+    g.add_argument("--calibrator-alpha-min", type=float, default=0.5)
+    g.add_argument("--calibrator-alpha-max", type=float, default=1.5)
 
     # Backtest
     g = p.add_argument_group("Backtest")
@@ -240,7 +240,7 @@ def compute_metrics(
     if len(returns) < 2:
         return {}
 
-    total_ret = values.iloc[-1] / values.iloc[0] - 1
+    total_ret = values.iloc[-1] / initial_capital - 1
     n_days = len(returns)
     cagr = (1 + total_ret) ** (252 / n_days) - 1
     vol = returns.std() * np.sqrt(252)

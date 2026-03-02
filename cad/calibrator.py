@@ -47,8 +47,8 @@ class CADCalibrator:
     def calibrate_alpha(
         self,
         ticker: str,
-        alpha_min: float = 0.0,
-        alpha_max: float = 5.0,
+        alpha_min: float = 0.5,
+        alpha_max: float = 1.5,
     ) -> AlphaCalibrationResult:
         prompt = self.neg_prompt_builder.build(entity=ticker, date="") + _YES_NO_SUFFIX
         entropy, p_yes, p_no = self._yes_no_entropy(prompt)

@@ -5,8 +5,8 @@
 #$ -q gpu
 #$ -l gpu=2
 #$ -P inf_fincomputing
-#$ -o ~/look-ahead-bias/logs/server-logs/cad-backtest-phi4_14b.out
-#$ -e ~/look-ahead-bias/logs/server-logs/cad-backtest-phi4_14b.err
+#$ -o ~/look-ahead-bias/logs/server-logs/cad-backtest-gemma3_12b.out
+#$ -e ~/look-ahead-bias/logs/server-logs/cad-backtest-gemma3_12b.err
 
 source ~/.bashrc
 conda activate look-ahead-bias
@@ -14,14 +14,14 @@ export PYTHONPATH=PYTHONPATH:./
 export CUDA_VISIBLE_DEVICES=0,1
 
 python -m benchmark.backtest.q_scores_eval.eval \
-  --model-name /data/weixianli/models/phi-4 \
+  --model-name ~/models/gemma-3-12b-it/ \
   --use-chat-template \
   --model-cache-dir ../pretrained_models \
   --attn-implementation flash_attention_2 \
   --score-mode on_demand \
   --decoding-mode cad \
   --cad-prior-mode optimized \
-  --optimized-instruction results/discovery/phi-4.json \
+  --optimized-instruction results/discovery/gemma-3-12b-it.json \
   --use-calibrator \
   --temperature 0.0 \
   --max-new-tokens 512 \
@@ -32,9 +32,9 @@ python -m benchmark.backtest.q_scores_eval.eval \
   --start-year 2014 \
   --end-year 2024 \
   --top-quantile 0.05 \
-  --results-file results/backtest/filings_cad_phi4_14b.jsonl \
-  --summary-file results/backtest/summary_cad_phi4_14b.json \
-  > logs/cad_backtest_phi4_14b.log 2>&1 &
+  --results-file results/backtest/filings_cad_gemma3_12b.jsonl \
+  --summary-file results/backtest/summary_cad_gemma3_12b.json \
+  > logs/cad_backtest_gemma3_12b.log 2>&1 &
 
 echo "PID: $!"
-echo "Log: tail -f logs/cad_backtest_phi4_14b.log"
+echo "Log: tail -f logs/cad_backtest_gemma3_12b.log"

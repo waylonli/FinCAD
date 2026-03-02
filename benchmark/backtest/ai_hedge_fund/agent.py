@@ -215,8 +215,8 @@ class TradingAgent:
         temperature: float = 0.0,
         max_new_tokens: int = 256,
         use_calibrator: bool = False,
-        calibrator_alpha_min: float = 0.0,
-        calibrator_alpha_max: float = 5.0,
+        calibrator_alpha_min: float = 0.5,
+        calibrator_alpha_max: float = 1.5,
         neg_prompt_builder: Optional["NegativePromptBuilder"] = None,
     ) -> None:
         self.decoder = decoder

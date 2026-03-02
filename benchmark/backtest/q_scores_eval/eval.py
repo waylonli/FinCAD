@@ -101,8 +101,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Calibrator
     g = p.add_argument_group("Calibrator")
     g.add_argument("--use-calibrator", action="store_true")
-    g.add_argument("--calibrator-alpha-min", type=float, default=0.0)
-    g.add_argument("--calibrator-alpha-max", type=float, default=5.0)
+    g.add_argument("--calibrator-alpha-min", type=float, default=0.5)
+    g.add_argument("--calibrator-alpha-max", type=float, default=1.5)
 
     # Scoring
     g = p.add_argument_group("Scoring")

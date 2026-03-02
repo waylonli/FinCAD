@@ -38,8 +38,8 @@ class ScoringConfig:
     cad_top_p: float = 1.0
     cad_prior_mode: str = "no_context"       # "no_context" or "bias_amplified"
     use_calibrator: bool = False
-    calibrator_alpha_min: float = 0.0
-    calibrator_alpha_max: float = 5.0
+    calibrator_alpha_min: float = 0.5
+    calibrator_alpha_max: float = 1.5
     chunk_size: int = 8192                   # max filing text tokens per chunk
     chunk_overlap: int = 256                 # overlap tokens between consecutive chunks
 
