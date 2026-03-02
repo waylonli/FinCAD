@@ -303,7 +303,6 @@ def _run_on_demand_scoring(
         calibrator = CADCalibrator(
             adapter.model,
             adapter.tokenizer,
-            neg_prompt_builder=neg_prompt_builder,
             device=adapter.device,
             use_chat_template=args.use_chat_template,
         )

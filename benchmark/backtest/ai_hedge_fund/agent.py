@@ -270,6 +270,7 @@ class TradingAgent:
                     ticker,
                     alpha_min=self.calibrator_alpha_min,
                     alpha_max=self.calibrator_alpha_max,
+                    date=f"{date:%Y-%m-%d}",
                 )
                 alpha = cal.alpha
                 logger.info("Calibrated alpha for %s: %.3f (entropy=%.3f)", ticker, alpha, cal.entropy)

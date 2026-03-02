@@ -184,6 +184,7 @@ class HFFilingScorer:
                     symbol,
                     alpha_min=self.config.calibrator_alpha_min,
                     alpha_max=self.config.calibrator_alpha_max,
+                    date=f"{report_date:%Y-%m-%d}",
                 )
                 alpha = cal_result.alpha
                 logger.info(

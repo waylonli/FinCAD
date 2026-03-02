@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import Dict
 
 import torch
-
-if TYPE_CHECKING:
-    from cad.discovery import NegativePromptBuilder
 
 _YES_NO_SUFFIX = "\nAnswer with Yes or No only: did this entity's value go up?"
 
@@ -22,25 +19,25 @@ class AlphaCalibrationResult:
 
 
 class CADCalibrator:
-    """Calibrate CAD alpha per entity by probing the model's prior confidence.
+    """Calibrate CAD alpha per entity-date pair by probing the model's prior confidence.
 
-    Uses the DSPy-optimised memory-activation instruction (via
-    ``NegativePromptBuilder``) to build a yes/no probe prompt, then measures
-    entropy over {yes, no} token probabilities. Low entropy (high confidence)
-    maps to high alpha.
+    Constructs a bare entity+date probe prompt (without the optimised
+    instruction ``T*``) and measures entropy over {yes, no} token
+    probabilities.  Low entropy (high confidence / strong memorisation)
+    maps to high alpha.  Omitting ``T*`` avoids amplifying the model's
+    recall and gives a clean measurement of intrinsic memorisation.
     """
 
     def __init__(
         self,
         model,
         tokenizer,
-        neg_prompt_builder: NegativePromptBuilder,
         device: str,
         use_chat_template: bool = False,
+        **kwargs,
     ):
         self.model = model
         self.tokenizer = tokenizer
-        self.neg_prompt_builder = neg_prompt_builder
         self.device = device
         self.use_chat_template = use_chat_template
 
@@ -49,8 +46,16 @@ class CADCalibrator:
         ticker: str,
         alpha_min: float = 0.5,
         alpha_max: float = 1.5,
+        date: str = "",
     ) -> AlphaCalibrationResult:
-        prompt = self.neg_prompt_builder.build(entity=ticker, date="") + _YES_NO_SUFFIX
+        # Probe with bare entity+date fields (no T*) to measure intrinsic
+        # memorisation without the amplification of the optimised instruction.
+        fields = []
+        if ticker:
+            fields.append(f"Entity: {ticker}")
+        if date:
+            fields.append(f"Date: {date}")
+        prompt = "\n".join(fields) + _YES_NO_SUFFIX
         entropy, p_yes, p_no = self._yes_no_entropy(prompt)
         # Map entropy in [0,1] -> alpha in [alpha_min, alpha_max]
         alpha = alpha_min + (alpha_max - alpha_min) * (1.0 - entropy)
