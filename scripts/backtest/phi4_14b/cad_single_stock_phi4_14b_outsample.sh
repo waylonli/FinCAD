@@ -21,8 +21,8 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
   --attn-implementation flash_attention_2 \
   --ticker "${TICKER}" \
   --price-csv dataset/backtest-data/price/price_data.csv \
-  --start-date 2010-01-01 \
-  --end-date 2020-01-01 \
+  --start-date 2025-01-01 \
+  --end-date 2026-01-01 \
   --rebalance-freq B \
   --decoding-mode cad \
   --cad-prior-mode optimized \
@@ -33,7 +33,7 @@ python -m benchmark.backtest.ai_hedge_fund.eval \
   --results-file "results/backtest/single_${TICKER}_cad_phi4_14b.jsonl" \
   --summary-file "results/backtest/single_${TICKER}_cad_phi4_14b_summary.json" \
   --values-csv "results/backtest/single_${TICKER}_cad_phi4_14b_values.csv" \
-  > "logs/cad_single_stock_${TICKER}_phi4_14b.log" 2>&1 &
+  > "logs/cad_single_stock_${TICKER}_phi4_14b_outsample.log" 2>&1 &
 
 echo "PID: $!"
-echo "Log: tail -f logs/cad_single_stock_${TICKER}_phi4_14b.log"
+echo "Log: tail -f logs/cad_single_stock_${TICKER}_phi4_14b_outsample.log"
