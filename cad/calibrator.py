@@ -4,6 +4,8 @@ import inspect
 from dataclasses import dataclass
 from typing import Dict
 
+import math
+
 import torch
 
 _YES_NO_SUFFIX = "\nAnswer with Yes or No only: did this entity's value go up?"
@@ -44,9 +46,8 @@ class CADCalibrator:
     def calibrate_alpha(
         self,
         ticker: str,
-        alpha_min: float = 0.5,
-        alpha_max: float = 1.5,
         date: str = "",
+        **kwargs,
     ) -> AlphaCalibrationResult:
         # Probe with bare entity+date fields (no T*) to measure intrinsic
         # memorisation without the amplification of the optimised instruction.
@@ -57,8 +58,11 @@ class CADCalibrator:
             fields.append(f"Date: {date}")
         prompt = "\n".join(fields) + _YES_NO_SUFFIX
         entropy, p_yes, p_no = self._yes_no_entropy(prompt)
-        # Map entropy in [0,1] -> alpha in [alpha_min, alpha_max]
-        alpha = alpha_min + (alpha_max - alpha_min) * (1.0 - entropy)
+        # α = -log₂(Ĥ): parameter-free, information-theoretic scaling.
+        # H=1 (uncertain) → α=0; H=0.5 → α=1; H=0.25 → α=2.
+        # Clamp entropy away from 0 to avoid infinite alpha.
+        clamped_h = max(entropy, 1e-4)
+        alpha = -math.log2(clamped_h)
         return AlphaCalibrationResult(alpha=alpha, entropy=entropy, p_yes=p_yes, p_no=p_no, prompt=prompt)
 
     def _yes_no_entropy(self, prompt: str) -> tuple[float, float, float]:

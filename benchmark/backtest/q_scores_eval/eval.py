@@ -101,8 +101,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Calibrator
     g = p.add_argument_group("Calibrator")
     g.add_argument("--use-calibrator", action="store_true")
-    g.add_argument("--calibrator-alpha-min", type=float, default=0.5)
-    g.add_argument("--calibrator-alpha-max", type=float, default=1.5)
 
     # Scoring
     g = p.add_argument_group("Scoring")
@@ -315,8 +313,6 @@ def _run_on_demand_scoring(
         cad_top_p=args.cad_top_p,
         cad_prior_mode=args.cad_prior_mode,
         use_calibrator=args.use_calibrator,
-        calibrator_alpha_min=args.calibrator_alpha_min,
-        calibrator_alpha_max=args.calibrator_alpha_max,
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap,
     )

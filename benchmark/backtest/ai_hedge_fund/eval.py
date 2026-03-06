@@ -73,8 +73,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Calibrator
     g = p.add_argument_group("Calibrator")
     g.add_argument("--use-calibrator", action="store_true")
-    g.add_argument("--calibrator-alpha-min", type=float, default=0.5)
-    g.add_argument("--calibrator-alpha-max", type=float, default=1.5)
 
     # Backtest
     g = p.add_argument_group("Backtest")
@@ -587,8 +585,6 @@ def main(argv=None) -> None:
         temperature=args.temperature,
         max_new_tokens=args.max_new_tokens,
         use_calibrator=args.use_calibrator,
-        calibrator_alpha_min=args.calibrator_alpha_min,
-        calibrator_alpha_max=args.calibrator_alpha_max,
         neg_prompt_builder=neg_prompt_builder,
     )
 

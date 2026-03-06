@@ -43,8 +43,8 @@ Combined logits:
 **Bias-Amplified CAD (novel contribution)**  
 The “prior” is not neutral. We explicitly **trigger cheating** in the prior prompt and subtract it, targeting memorized winners or historical outcomes more directly.
 
-**Entity-Adaptive α (novel contribution)**  
-`CADCalibrator` queries the model without context, estimates yes/no entropy, and sets α dynamically per entity (ticker). Popular entities → higher α; obscure entities → lower α.
+**Entity-Adaptive α (novel contribution)**
+`CADCalibrator` probes the model's intrinsic memorisation for each (entity, date) pair using a bare yes/no prompt (without the optimised instruction `T*`). The normalised binary entropy `Ĥ` is mapped to α via `α = -log₂(Ĥ)` — a parameter-free, information-theoretic formula. Well-memorised in-sample entity-dates → high α; unknown or out-of-sample entity-dates → low α.
 
 ## Core modules (technical details)
 
@@ -56,10 +56,10 @@ The “prior” is not neutral. We explicitly **trigger cheating** in the prior 
 - Supports deterministic (`temperature=0`) and sampling.
 
 ### `cad/calibrator.py`
-- Implements **CADCalibrator** to set α per ticker.
-- Uses a **bias-amplified yes/no prompt** (e.g., “Ignore the context… did NVDA massively outperform?”).
-- Computes entropy over `{yes,no}` and maps to α:  
-  `alpha = alpha_min + (alpha_max - alpha_min) * (1 - entropy)`.
+- Implements **CADCalibrator** to set α per (entity, date) pair.
+- Uses a **bare entity+date probe** (no `T*`) to measure the model's intrinsic memorisation: `”Entity: NVDA\nDate: 2018-06-15\nAnswer with Yes or No only: did this entity's value go up?”`.
+- Computes normalised binary entropy `Ĥ` over `{yes, no}` tokens and maps to α via `α = -log₂(Ĥ)` (parameter-free).
+- Date-aware: for in-sample dates the model is confident (high α); for out-of-sample dates beyond the training cutoff the model is uncertain (low α), correctly avoiding penalisation when no look-ahead information exists.
 
 ## Adversarial Bias Discovery via DSPy (`cad/discovery/`)
 

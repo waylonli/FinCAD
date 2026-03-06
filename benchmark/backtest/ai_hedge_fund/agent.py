@@ -215,9 +215,8 @@ class TradingAgent:
         temperature: float = 0.0,
         max_new_tokens: int = 256,
         use_calibrator: bool = False,
-        calibrator_alpha_min: float = 0.5,
-        calibrator_alpha_max: float = 1.5,
         neg_prompt_builder: Optional["NegativePromptBuilder"] = None,
+        **kwargs,
     ) -> None:
         self.decoder = decoder
         self.calibrator = calibrator
@@ -227,8 +226,6 @@ class TradingAgent:
         self.temperature = temperature
         self.max_new_tokens = max_new_tokens
         self.use_calibrator = use_calibrator
-        self.calibrator_alpha_min = calibrator_alpha_min
-        self.calibrator_alpha_max = calibrator_alpha_max
         self.neg_prompt_builder = neg_prompt_builder
 
     # ----- public API -----
@@ -268,8 +265,6 @@ class TradingAgent:
             try:
                 cal = self.calibrator.calibrate_alpha(
                     ticker,
-                    alpha_min=self.calibrator_alpha_min,
-                    alpha_max=self.calibrator_alpha_max,
                     date=f"{date:%Y-%m-%d}",
                 )
                 alpha = cal.alpha

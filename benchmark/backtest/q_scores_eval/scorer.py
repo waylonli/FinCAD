@@ -38,8 +38,6 @@ class ScoringConfig:
     cad_top_p: float = 1.0
     cad_prior_mode: str = "no_context"       # "no_context" or "bias_amplified"
     use_calibrator: bool = False
-    calibrator_alpha_min: float = 0.5
-    calibrator_alpha_max: float = 1.5
     chunk_size: int = 8192                   # max filing text tokens per chunk
     chunk_overlap: int = 256                 # overlap tokens between consecutive chunks
 
@@ -182,8 +180,6 @@ class HFFilingScorer:
             if self.config.use_calibrator and self.calibrator is not None:
                 cal_result = self.calibrator.calibrate_alpha(
                     symbol,
-                    alpha_min=self.config.calibrator_alpha_min,
-                    alpha_max=self.config.calibrator_alpha_max,
                     date=f"{report_date:%Y-%m-%d}",
                 )
                 alpha = cal_result.alpha
