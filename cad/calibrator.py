@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import inspect
+import logging
 from dataclasses import dataclass
 from typing import Dict
 
@@ -8,26 +8,35 @@ import math
 
 import torch
 
-_YES_NO_SUFFIX = "\nAnswer with Yes or No only: did this entity's value go up?"
+logger = logging.getLogger(__name__)
+
+_COMPLETION_TEMPLATE = "After {date}, {entity} stock went"
 
 
 @dataclass
 class AlphaCalibrationResult:
     alpha: float
-    entropy: float
-    p_yes: float
-    p_no: float
+    entropy: float    # normalised binary entropy over {up, down}
+    p_yes: float      # p_up (after normalisation)
+    p_no: float       # p_down (after normalisation)
     prompt: str
 
 
 class CADCalibrator:
-    """Calibrate CAD alpha per entity-date pair by probing the model's prior confidence.
+    """Calibrate CAD alpha per entity-date pair via completion-based probing.
 
-    Constructs a bare entity+date probe prompt (without the optimised
-    instruction ``T*``) and measures entropy over {yes, no} token
-    probabilities.  Low entropy (high confidence / strong memorisation)
-    maps to high alpha.  Omitting ``T*`` avoids amplifying the model's
-    recall and gives a clean measurement of intrinsic memorisation.
+    Uses a completion prompt ``"[T*] After {date}, {entity} stock went"``
+    and compares logits for "up" vs "down" tokens at the next-token position.
+    This avoids:
+    - Safety refusals (plain completion, not a question)
+    - Signal dilution (100% of signal in the measured token)
+    - Chat template artifacts (always uses raw tokenization)
+
+    The logit gap between "up" and "down" is mapped to α via an
+    exponential transform: α = exp(gap) − 1.  This is approximately
+    linear for small gaps (out-of-sample entities stay near the raw
+    gap) and superlinear for large gaps (in-sample entities are
+    amplified to α ≈ 2–3).
     """
 
     def __init__(
@@ -36,12 +45,16 @@ class CADCalibrator:
         tokenizer,
         device: str,
         use_chat_template: bool = False,
+        optimized_instruction: str = "",
         **kwargs,
     ):
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
-        self.use_chat_template = use_chat_template
+        self.optimized_instruction = optimized_instruction
+        # Pre-compute token IDs for "up" and "down" variants
+        self._up_ids = self._token_ids([" up", " Up", "up", "Up"])
+        self._down_ids = self._token_ids([" down", " Down", "down", "Down"])
 
     def calibrate_alpha(
         self,
@@ -49,49 +62,64 @@ class CADCalibrator:
         date: str = "",
         **kwargs,
     ) -> AlphaCalibrationResult:
-        # Probe with bare entity+date fields (no T*) to measure intrinsic
-        # memorisation without the amplification of the optimised instruction.
-        fields = []
-        if ticker:
-            fields.append(f"Entity: {ticker}")
-        if date:
-            fields.append(f"Date: {date}")
-        prompt = "\n".join(fields) + _YES_NO_SUFFIX
-        entropy, p_yes, p_no = self._yes_no_entropy(prompt)
-        # α = -log₂(Ĥ): parameter-free, information-theoretic scaling.
-        # H=1 (uncertain) → α=0; H=0.5 → α=1; H=0.25 → α=2.
-        # Clamp entropy away from 0 to avoid infinite alpha.
-        clamped_h = max(entropy, 1e-4)
-        alpha = -math.log2(clamped_h)
-        return AlphaCalibrationResult(alpha=alpha, entropy=entropy, p_yes=p_yes, p_no=p_no, prompt=prompt)
+        # Build completion prompt: T* ⊕ "After {date}, {entity} stock went"
+        parts = []
+        if self.optimized_instruction:
+            parts.append(self.optimized_instruction.rstrip())
+        parts.append(_COMPLETION_TEMPLATE.format(entity=ticker, date=date))
+        prompt = "\n\n".join(parts)
 
-    def _yes_no_entropy(self, prompt: str) -> tuple[float, float, float]:
-        inputs = self._encode(prompt)
+        entropy, p_up, p_down, l_up, l_down = self._probe(prompt)
+
+        # α = exp(gap) − 1: approximately linear for small gaps,
+        # superlinear for large gaps.  No free parameters.
+        gap = abs(l_up - l_down)
+        alpha = math.exp(gap) - 1.0
+
+        preferred = "up" if l_up > l_down else "down"
+        logger.info(
+            "Probe %s @ %s → α=%.3f (gap=%.3f) p_up=%.4f p_down=%.4f "
+            "logit_up=%.2f logit_down=%.2f preferred=%s",
+            ticker, date, alpha, gap, p_up, p_down, l_up, l_down, preferred,
+        )
+        return AlphaCalibrationResult(
+            alpha=alpha,
+            entropy=gap,       # raw logit gap stored here for logging
+            p_yes=p_up,
+            p_no=p_down,
+            prompt=prompt,
+        )
+
+    def _probe(self, prompt: str) -> tuple[float, float, float, float, float]:
+        """Run the completion probe and return (entropy, p_up, p_down, l_up, l_down)."""
+        inputs = self._encode_plain(prompt)
         with torch.no_grad():
             outputs = self.model(**inputs)
         logits = outputs.logits[:, -1, :]
-        probs = torch.nn.functional.softmax(logits, dim=-1)
 
-        yes_ids = self._token_ids([" yes", " Yes", "yes", "Yes"])
-        no_ids = self._token_ids([" no", " No", "no", "No"])
+        if not self._up_ids or not self._down_ids:
+            return 1.0, 0.5, 0.5, 0.0, 0.0
 
-        p_yes = probs[0, yes_ids].sum().item() if yes_ids else 0.0
-        p_no = probs[0, no_ids].sum().item() if no_ids else 0.0
+        # Best logit for each class
+        l_up = logits[0, self._up_ids].max().item()
+        l_down = logits[0, self._down_ids].max().item()
 
-        total = p_yes + p_no
-        if total <= 0:
-            # No reliable yes/no signal
-            return 1.0, 0.0, 0.0
+        # 2-class softmax at τ=1 (model's raw logit calibration)
+        l_max = max(l_up, l_down)
+        e_up = math.exp(l_up - l_max)
+        e_down = math.exp(l_down - l_max)
+        total = e_up + e_down
+        p_up = e_up / total
+        p_down = e_down / total
 
-        p_yes /= total
-        p_no /= total
+        # Normalised binary entropy
         entropy = 0.0
-        for p in (p_yes, p_no):
+        for p in (p_up, p_down):
             if p > 0:
-                entropy -= p * torch.log(torch.tensor(p)).item()
-        # Normalize by log(2) to [0,1]
-        entropy /= torch.log(torch.tensor(2.0)).item()
-        return entropy, p_yes, p_no
+                entropy -= p * math.log(p)
+        entropy /= math.log(2.0)
+
+        return entropy, p_up, p_down, l_up, l_down
 
     def _token_ids(self, tokens) -> list[int]:
         ids = []
@@ -99,25 +127,9 @@ class CADCalibrator:
             token_ids = self.tokenizer.encode(t, add_special_tokens=False)
             if len(token_ids) == 1:
                 ids.append(token_ids[0])
-        # Deduplicate
         return sorted(set(ids))
 
-    def _encode(self, prompt: str) -> Dict[str, torch.Tensor]:
-        if self.use_chat_template:
-            messages = [{"role": "user", "content": prompt}]
-            kwargs = dict(
-                tokenize=True,
-                add_generation_prompt=True,
-                return_tensors="pt",
-                return_dict=True,
-            )
-            try:
-                sig = inspect.signature(self.tokenizer.apply_chat_template)
-                if "enable_thinking" in sig.parameters:
-                    kwargs["enable_thinking"] = False
-            except (ValueError, TypeError):
-                pass
-            encoded = self.tokenizer.apply_chat_template(messages, **kwargs)
-        else:
-            encoded = self.tokenizer(prompt, return_tensors="pt", padding=False)
+    def _encode_plain(self, text: str) -> Dict[str, torch.Tensor]:
+        """Encode as plain text (no chat template) for completion probing."""
+        encoded = self.tokenizer(text, return_tensors="pt", padding=False)
         return {k: v.to(self.device) for k, v in encoded.items()}

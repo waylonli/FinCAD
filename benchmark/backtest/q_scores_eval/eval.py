@@ -303,6 +303,7 @@ def _run_on_demand_scoring(
             adapter.tokenizer,
             device=adapter.device,
             use_chat_template=args.use_chat_template,
+            optimized_instruction=neg_prompt_builder.instruction.instruction if neg_prompt_builder else "",
         )
 
     scoring_config = ScoringConfig(

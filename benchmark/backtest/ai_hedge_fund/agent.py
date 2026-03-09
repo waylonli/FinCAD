@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TradingSignal:
     signal: str  # "buy", "sell", or "hold"
+    quantity: int  # number of shares to trade
     confidence: int  # 0-100
     reasoning: str
     alpha_used: float = 0.0
@@ -45,15 +46,18 @@ class TradingSignal:
 # ---------------------------------------------------------------------------
 
 CONTEXT_SYSTEM = """\
-You are a quantitative analyst evaluating a single stock.
+You are a portfolio manager for a single-stock strategy.
 You will be given financial data for {ticker} as of {date}.
 Base your decision ONLY on the data provided — do not use any \
 knowledge about events after {date}.
 
-Return your analysis as a JSON object with exactly these keys:
-- "signal": one of "buy", "sell", or "hold"
+You must pick one action and a quantity within the allowed limits.
+
+Return your decision as a JSON object with exactly these keys:
+- "action": one of "buy", "sell", or "hold"
+- "quantity": integer number of shares to trade (0 for hold)
 - "confidence": integer between 0 and 100
-- "reasoning": string with a concise rationale (max 200 chars)
+- "reasoning": string with a concise rationale (max 100 chars)
 
 Respond with valid JSON only.\
 """
@@ -63,13 +67,21 @@ CONTEXT_BODY = """\
 
 {financial_summary}
 
-Based solely on the data above, what is your trading signal?\
+=== Portfolio State ===
+Cash: ${cash:,.2f}
+Current Shares: {shares}
+Portfolio Value: ${portfolio_value:,.2f}
+
+=== Allowed Actions ===
+{allowed_actions}
+
+Based solely on the data above, what is your trading decision?\
 """
 
 PRIOR_NO_CONTEXT = """\
-You are a quantitative analyst.
-Evaluate whether to buy, sell, or hold {ticker} stock.
-Return a JSON object with keys "signal", "confidence", "reasoning".
+You are a portfolio manager for a single-stock strategy.
+Decide whether to buy, sell, or hold {ticker} stock, and how many shares.
+Return a JSON object with keys "action", "quantity", "confidence", "reasoning".
 Respond with valid JSON only.\
 """
 
@@ -79,9 +91,10 @@ about {ticker}, evaluate whether {ticker} stock will go up or down after \
 {date}.  Think about everything you know about this company's trajectory.
 
 Return a JSON object with exactly these keys:
-- "signal": one of "buy", "sell", or "hold"
+- "action": one of "buy", "sell", or "hold"
+- "quantity": integer number of shares to trade (0 for hold)
 - "confidence": integer between 0 and 100
-- "reasoning": string with a concise rationale (max 200 chars)
+- "reasoning": string with a concise rationale (max 100 chars)
 
 Respond with valid JSON only.\
 """
@@ -171,29 +184,63 @@ def build_financial_summary(
 _JSON_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 
 
-def parse_trading_signal(text: str) -> TradingSignal:
-    """Extract a TradingSignal from LLM generation text."""
+_ACTION_RE = re.compile(r'"action"\s*:\s*"[^"]*\b(buy|sell|hold)\b[^"]*"', re.IGNORECASE)
+_SIGNAL_RE = re.compile(r'"signal"\s*:\s*"[^"]*\b(buy|sell|hold)\b[^"]*"', re.IGNORECASE)
+_QUANTITY_RE = re.compile(r'"quantity"\s*:\s*(\d+)')
+_CONFIDENCE_RE = re.compile(r'"confidence"\s*:\s*(\d+)')
+
+
+def parse_trading_signal(text: str, max_buy: int = 0, max_sell: int = 0) -> TradingSignal:
+    """Extract a TradingSignal from LLM generation text.
+
+    *max_buy* and *max_sell* are used to clamp the quantity so the LLM
+    cannot exceed the allowed limits.
+    """
+    # Try strict JSON first
     m = _JSON_RE.search(text)
     if m:
         try:
             obj = json.loads(m.group())
-            signal = str(obj.get("signal", "hold")).lower().strip()
-            if signal not in ("buy", "sell", "hold"):
-                signal = "hold"
+            raw_signal = str(obj.get("action", obj.get("signal", "hold"))).lower().strip()
+            # Extract buy/sell/hold even if value contains extra text
+            signal = "hold"
+            for kw in ("buy", "sell", "hold"):
+                if kw in raw_signal:
+                    signal = kw
+                    break
+            quantity = int(max(0, float(obj.get("quantity", 0))))
             confidence = int(max(0, min(100, float(obj.get("confidence", 50)))))
             reasoning = str(obj.get("reasoning", ""))[:300]
-            return TradingSignal(signal=signal, confidence=confidence, reasoning=reasoning)
+            # Clamp quantity to allowed limits
+            if signal == "buy":
+                quantity = min(quantity, max_buy)
+            elif signal == "sell":
+                quantity = min(quantity, max_sell)
+            else:
+                quantity = 0
+            return TradingSignal(signal=signal, quantity=quantity, confidence=confidence, reasoning=reasoning)
         except (json.JSONDecodeError, ValueError, TypeError):
-            logger.warning(f"Could not parse trading signal {text}")
             pass
 
-    # Fallback heuristics
-    lower = text.lower()
-    if "buy" in lower and "sell" not in lower:
-        return TradingSignal(signal="buy", confidence=30, reasoning="[parse fallback] found 'buy' keyword")
-    if "sell" in lower and "buy" not in lower:
-        return TradingSignal(signal="sell", confidence=30, reasoning="[parse fallback] found 'sell' keyword")
-    return TradingSignal(signal="hold", confidence=0, reasoning="[parse fallback] could not parse signal")
+    # Regex fallback: extract action/quantity/confidence from malformed JSON
+    act_m = _ACTION_RE.search(text) or _SIGNAL_RE.search(text)
+    qty_m = _QUANTITY_RE.search(text)
+    conf_m = _CONFIDENCE_RE.search(text)
+    if act_m:
+        signal = act_m.group(1).lower()
+        quantity = int(qty_m.group(1)) if qty_m else 0
+        confidence = int(max(0, min(100, float(conf_m.group(1))))) if conf_m else 50
+        if signal == "buy":
+            quantity = min(quantity, max_buy)
+        elif signal == "sell":
+            quantity = min(quantity, max_sell)
+        else:
+            quantity = 0
+        return TradingSignal(signal=signal, quantity=quantity, confidence=confidence, reasoning="[regex fallback]")
+
+    # Could not parse action — treat as hold so the failure is visible
+    logger.warning("Could not parse trading signal: %s", text[:200])
+    return TradingSignal(signal="hold", quantity=0, confidence=0, reasoning="[parse failed]")
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +283,10 @@ class TradingAgent:
         date: pd.Timestamp,
         price_df: pd.DataFrame,
         decoding_mode: str = "baseline",
+        cash: float = 0.0,
+        shares: int = 0,
+        portfolio_value: float = 0.0,
+        current_price: float = 0.0,
     ) -> TradingSignal:
         """Return a trading signal for *ticker* as of *date*.
 
@@ -250,13 +301,37 @@ class TradingAgent:
             Full price history; filtered internally to rows < *date*.
         decoding_mode : str
             ``"baseline"`` for standard generation, ``"cad"`` for context-aware decoding.
+        cash, shares, portfolio_value, current_price :
+            Current portfolio state, used to compute allowed actions.
         """
         summary = build_financial_summary(ticker, date, price_df)
+
+        # Compute allowed actions (like ai-hedge-fund's compute_allowed_actions)
+        # Reserve cash for commission: $0.0049/share, min $0.99/order
+        if current_price > 0:
+            max_buy = int((cash - 0.99) // (current_price + 0.0049))
+            max_buy = max(max_buy, 0)
+        else:
+            max_buy = 0
+        max_sell = shares
+        allowed_lines = []
+        if max_buy > 0:
+            allowed_lines.append(f"- buy: up to {max_buy} shares (max cost ${max_buy * current_price:,.2f})")
+        if max_sell > 0:
+            allowed_lines.append(f"- sell: up to {max_sell} shares")
+        allowed_lines.append("- hold: keep current position")
+        allowed_actions = "\n".join(allowed_lines)
 
         context_prompt = (
             CONTEXT_SYSTEM.format(ticker=ticker, date=f"{date:%Y-%m-%d}")
             + "\n\n"
-            + CONTEXT_BODY.format(ticker=ticker, date=f"{date:%Y-%m-%d}", financial_summary=summary)
+            + CONTEXT_BODY.format(
+                ticker=ticker, date=f"{date:%Y-%m-%d}",
+                financial_summary=summary,
+                cash=cash, shares=shares,
+                portfolio_value=portfolio_value,
+                allowed_actions=allowed_actions,
+            )
         )
 
         # Resolve alpha
@@ -268,7 +343,7 @@ class TradingAgent:
                     date=f"{date:%Y-%m-%d}",
                 )
                 alpha = cal.alpha
-                logger.info("Calibrated alpha for %s: %.3f (entropy=%.3f)", ticker, alpha, cal.entropy)
+                logger.info("Calibrated alpha for %s: %.3f (logit_gap=%.3f, p_up=%.3f, p_down=%.3f)", ticker, alpha, cal.entropy, cal.p_yes, cal.p_no)
             except Exception as exc:
                 logger.warning("Calibrator failed for %s: %s — using static alpha %.2f", ticker, exc, self.cad_alpha)
 
@@ -282,7 +357,7 @@ class TradingAgent:
         prior_prompt = self._build_prior(ticker, date)
 
         generation = self.decoder.generate(context_prompt, prior_prompt, config)
-        sig = parse_trading_signal(generation)
+        sig = parse_trading_signal(generation, max_buy=max_buy, max_sell=max_sell)
         sig.alpha_used = config.alpha
         return sig
 
@@ -292,13 +367,14 @@ class TradingAgent:
         date_str = f"{date:%Y-%m-%d}"
         if self.cad_prior_mode == "optimized" and self.neg_prompt_builder is not None:
             task_instruction = (
-                'You are a quantitative analyst evaluating a single stock.\n\n'
-                'Return your analysis as a JSON object with exactly these keys:\n'
-                '- "signal": one of "buy", "sell", or "hold"\n'
+                'You are a portfolio manager for a single-stock strategy.\n\n'
+                'Return your decision as a JSON object with exactly these keys:\n'
+                '- "action": one of "buy", "sell", or "hold"\n'
+                '- "quantity": integer number of shares to trade (0 for hold)\n'
                 '- "confidence": integer between 0 and 100\n'
-                '- "reasoning": string with a concise rationale (max 200 chars)\n\n'
+                '- "reasoning": string with a concise rationale (max 100 chars)\n\n'
                 'Respond with valid JSON only.\n\n'
-                'What is your trading signal?'
+                'What is your trading decision?'
             )
             return self.neg_prompt_builder.build(
                 entity=ticker, date=date_str,

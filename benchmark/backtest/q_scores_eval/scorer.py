@@ -184,8 +184,8 @@ class HFFilingScorer:
                 )
                 alpha = cal_result.alpha
                 logger.info(
-                    "Calibrated alpha for %s: %.3f (entropy=%.3f)",
-                    symbol, alpha, cal_result.entropy,
+                    "Calibrated alpha for %s: %.3f (logit_gap=%.3f, p_up=%.3f, p_down=%.3f)",
+                    symbol, alpha, cal_result.entropy, cal_result.p_yes, cal_result.p_no,
                 )
             else:
                 alpha = self.config.cad_alpha

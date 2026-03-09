@@ -44,7 +44,7 @@ Combined logits:
 The “prior” is not neutral. We explicitly **trigger cheating** in the prior prompt and subtract it, targeting memorized winners or historical outcomes more directly.
 
 **Entity-Adaptive α (novel contribution)**
-`CADCalibrator` probes the model's intrinsic memorisation for each (entity, date) pair using a bare yes/no prompt (without the optimised instruction `T*`). The normalised binary entropy `Ĥ` is mapped to α via `α = -log₂(Ĥ)` — a parameter-free, information-theoretic formula. Well-memorised in-sample entity-dates → high α; unknown or out-of-sample entity-dates → low α.
+`CADCalibrator` measures the model's memorisation for each (entity, date) pair using a **completion-based probe**. The prompt `"[T*]\n\nAfter {date}, {entity} stock went"` is fed through the model in plain completion mode (no chat template), and the logits for `"up"` vs `"down"` tokens are extracted. The penalty is set via an **exponential logit-gap transform**: `α = exp(|ℓ_up − ℓ_down|) − 1` — a parameter-free formula that is approximately linear for small gaps (out-of-sample entities stay near zero) and superlinear for large gaps (in-sample entities are amplified to α ≈ 2–3). Including `T*` mirrors the prior prompt used during decoding.
 
 ## Core modules (technical details)
 
@@ -57,9 +57,10 @@ The “prior” is not neutral. We explicitly **trigger cheating** in the prior 
 
 ### `cad/calibrator.py`
 - Implements **CADCalibrator** to set α per (entity, date) pair.
-- Uses a **bare entity+date probe** (no `T*`) to measure the model's intrinsic memorisation: `”Entity: NVDA\nDate: 2018-06-15\nAnswer with Yes or No only: did this entity's value go up?”`.
-- Computes normalised binary entropy `Ĥ` over `{yes, no}` tokens and maps to α via `α = -log₂(Ĥ)` (parameter-free).
-- Date-aware: for in-sample dates the model is confident (high α); for out-of-sample dates beyond the training cutoff the model is uncertain (low α), correctly avoiding penalisation when no look-ahead information exists.
+- Uses a **completion-based probe** in plain tokenisation mode (no chat template): `”[T*]\n\nAfter 2018-06-15, NVDA stock went”`.
+- Extracts logits for `”up”` vs `”down”` tokens at the next-token position.
+- Maps to α via `α = exp(|ℓ_up − ℓ_down|) − 1` (parameter-free exponential logit-gap transform). Approximately linear for small gaps, superlinear for large gaps. The completion format avoids safety refusals and signal dilution that affect yes/no question probes.
+- Date-aware: for in-sample dates the model produces a large logit gap yielding α ≈ 2–3; for out-of-sample dates beyond the training cutoff the gap is small yielding α < 1, correctly reducing penalisation when no look-ahead information exists.
 
 ## Adversarial Bias Discovery via DSPy (`cad/discovery/`)
 

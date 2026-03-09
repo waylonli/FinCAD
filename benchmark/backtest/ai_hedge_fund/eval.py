@@ -172,21 +172,19 @@ class SimplePortfolio:
         self.cost_basis = 0.0
         self.total_commission = 0.0
 
-    def buy(self, price: float, fraction: float = 1.0) -> int:
-        """Buy shares using *fraction* of available cash. Returns shares bought."""
-        available = self.cash * fraction
-        qty = int(available // price)
+    def buy(self, price: float, qty: int) -> int:
+        """Buy *qty* shares at *price*. Returns shares actually bought."""
         if qty <= 0:
             return 0
         cost = qty * price
         commission = compute_commission(qty)
-        if cost + commission > self.cash:
-            # Reduce qty to afford commission
-            qty = int((self.cash - COMMISSION_MIN_ORDER) // price)
-            if qty <= 0:
-                return 0
-            cost = qty * price
-            commission = compute_commission(qty)
+        # Reduce qty if we can't afford it
+        while qty > 0 and qty * price + compute_commission(qty) > self.cash:
+            qty -= 1
+        if qty <= 0:
+            return 0
+        cost = qty * price
+        commission = compute_commission(qty)
         # Update cost basis (weighted avg, inclusive of commission)
         total_shares = self.shares + qty
         if total_shares > 0:
@@ -196,9 +194,9 @@ class SimplePortfolio:
         self.total_commission += commission
         return qty
 
-    def sell(self, price: float, fraction: float = 1.0) -> int:
-        """Sell *fraction* of current shares. Returns shares sold."""
-        qty = int(self.shares * fraction)
+    def sell(self, price: float, qty: int) -> int:
+        """Sell *qty* shares at *price*. Returns shares actually sold."""
+        qty = min(qty, self.shares)
         if qty <= 0:
             return 0
         proceeds = qty * price
@@ -393,10 +391,10 @@ def run_single_stock_backtest(
             if pending_signal is not None and pending_exec_date == date:
                 sig = pending_signal
                 executed = 0
-                if sig.signal == "buy":
-                    executed = portfolio.buy(open_price)
-                elif sig.signal == "sell":
-                    executed = portfolio.sell(open_price)
+                if sig.signal == "buy" and sig.quantity > 0:
+                    executed = portfolio.buy(open_price, sig.quantity)
+                elif sig.signal == "sell" and sig.quantity > 0:
+                    executed = portfolio.sell(open_price, sig.quantity)
 
                 record = {
                     "decision_date": str(pending_rebal_date.date()),
@@ -404,6 +402,7 @@ def run_single_stock_backtest(
                     "ticker": ticker,
                     "execution_price": round(open_price, 2),
                     "signal": sig.signal,
+                    "requested_shares": sig.quantity,
                     "confidence": sig.confidence,
                     "reasoning": sig.reasoning,
                     "alpha_used": sig.alpha_used,
@@ -432,8 +431,14 @@ def run_single_stock_backtest(
 
             # Generate signal on rebalance date (sees data up to prev close)
             if date in rebal_set and date in exec_date_map:
-                sig = agent.get_signal(ticker, date, price_df,
-                                       decoding_mode=decoding_mode)
+                sig = agent.get_signal(
+                    ticker, date, price_df,
+                    decoding_mode=decoding_mode,
+                    cash=portfolio.cash,
+                    shares=portfolio.shares,
+                    portfolio_value=portfolio.value(val_price),
+                    current_price=val_price,
+                )
                 pending_signal = sig
                 pending_rebal_date = date
                 pending_exec_date = exec_date_map[date]
@@ -574,6 +579,7 @@ def main(argv=None) -> None:
             adapter.tokenizer,
             device=adapter.device,
             use_chat_template=args.use_chat_template,
+            optimized_instruction=neg_prompt_builder.instruction.instruction if neg_prompt_builder else "",
         )
 
     agent = TradingAgent(
