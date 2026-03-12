@@ -511,6 +511,13 @@ def print_summary(result: dict, args: argparse.Namespace) -> None:
     total_commission = result.get("total_commission", 0.0)
     print(f"\n  Decisions: {n_decisions} total — {buys} buy, {sells} sell, {holds} hold")
     print(f"  Total commission paid: ${total_commission:,.2f}")
+
+    alphas = [d["alpha_used"] for d in result["decisions"]]
+    if alphas:
+        a = np.array(alphas)
+        print(f"\n  Alpha stats (n={len(a)}):")
+        print(f"    mean={a.mean():.3f}  std={a.std():.3f}  "
+              f"min={a.min():.3f}  max={a.max():.3f}  median={np.median(a):.3f}")
     print("=" * 64 + "\n")
 
 
@@ -610,6 +617,27 @@ def main(argv=None) -> None:
     # ---- Output ----
     print_summary(result, args)
 
+    # ---- Export alpha per decision date ----
+    decisions = result["decisions"]
+    alphas = [d["alpha_used"] for d in decisions]
+    alpha_stats = {}
+    if alphas:
+        a = np.array(alphas)
+        alpha_stats = {
+            "mean": float(a.mean()), "std": float(a.std()),
+            "min": float(a.min()), "max": float(a.max()),
+            "median": float(np.median(a)),
+        }
+
+    if args.results_file and alphas:
+        alpha_csv = Path(args.results_file).with_suffix(".alpha.csv")
+        alpha_df = pd.DataFrame([
+            {"decision_date": d["decision_date"], "alpha": d["alpha_used"]}
+            for d in decisions
+        ])
+        alpha_df.to_csv(alpha_csv, index=False)
+        logger.info("Alpha per date written to %s (%d rows)", alpha_csv, len(alpha_df))
+
     if args.summary_file:
         out = Path(args.summary_file)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -629,10 +657,11 @@ def main(argv=None) -> None:
             "total_commission": result["total_commission"],
             "strategy": result["strategy_metrics"],
             "buy_and_hold": result["benchmark_metrics"],
-            "n_decisions": len(result["decisions"]),
-            "n_buys": sum(1 for d in result["decisions"] if d["signal"] == "buy"),
-            "n_sells": sum(1 for d in result["decisions"] if d["signal"] == "sell"),
-            "n_holds": sum(1 for d in result["decisions"] if d["signal"] == "hold"),
+            "n_decisions": len(decisions),
+            "n_buys": sum(1 for d in decisions if d["signal"] == "buy"),
+            "n_sells": sum(1 for d in decisions if d["signal"] == "sell"),
+            "n_holds": sum(1 for d in decisions if d["signal"] == "hold"),
+            "alpha_stats": alpha_stats,
         }
         with open(out, "w") as f:
             json.dump(summary, f, indent=2, default=str)

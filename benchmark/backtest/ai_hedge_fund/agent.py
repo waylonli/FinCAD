@@ -347,17 +347,29 @@ class TradingAgent:
             except Exception as exc:
                 logger.warning("Calibrator failed for %s: %s — using static alpha %.2f", ticker, exc, self.cad_alpha)
 
-        config = CADConfig(
-            alpha=alpha if decoding_mode == "cad" else 0.0,
-            top_p=self.cad_top_p,
-            temperature=self.temperature,
-            max_new_tokens=self.max_new_tokens,
-        )
-
         prior_prompt = self._build_prior(ticker, date)
+        initial_alpha = alpha if decoding_mode == "cad" else 0.0
+        current_alpha = initial_alpha
 
-        generation = self.decoder.generate(context_prompt, prior_prompt, config)
-        sig = parse_trading_signal(generation, max_buy=max_buy, max_sell=max_sell)
+        for attempt in range(6):  # original + up to 5 retries
+            config = CADConfig(
+                alpha=current_alpha,
+                top_p=self.cad_top_p,
+                temperature=self.temperature,
+                max_new_tokens=self.max_new_tokens,
+            )
+            generation = self.decoder.generate(context_prompt, prior_prompt, config)
+            sig = parse_trading_signal(generation, max_buy=max_buy, max_sell=max_sell)
+            if sig.reasoning != "[parse failed]":
+                sig.alpha_used = config.alpha
+                if attempt > 0:
+                    logger.info("Parse succeeded after %d retries (α: %.3f → %.3f)",
+                                attempt, initial_alpha, config.alpha)
+                return sig
+            current_alpha *= 0.8
+
+        logger.error("Parse failed after 5 retries (α: %.3f → %.3f) — defaulting to hold",
+                     initial_alpha, config.alpha)
         sig.alpha_used = config.alpha
         return sig
 
