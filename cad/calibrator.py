@@ -74,7 +74,7 @@ class CADCalibrator:
         # α = exp(gap) − 1: approximately linear for small gaps,
         # superlinear for large gaps.  No free parameters.
         gap = abs(l_up - l_down)
-        alpha = math.exp(gap) - 1.0
+        alpha = min(math.exp(gap) - 1.0, 5.0)
 
         preferred = "up" if l_up > l_down else "down"
         logger.info(
