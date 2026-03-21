@@ -44,7 +44,7 @@ Combined logits:
 The “prior” is not neutral. We explicitly **trigger cheating** in the prior prompt and subtract it, targeting memorized winners or historical outcomes more directly.
 
 **Entity-Adaptive α (novel contribution)**
-`CADCalibrator` measures the model's memorisation for each (entity, date) pair using a **completion-based probe**. The prompt `"[T*]\n\nAfter {date}, {entity} stock went"` is fed through the model in plain completion mode (no chat template), and the logits for `"up"` vs `"down"` tokens are extracted. The penalty is set via an **exponential logit-gap transform**: `α = exp(|ℓ_up − ℓ_down|) − 1` — a parameter-free formula that is approximately linear for small gaps (out-of-sample entities stay near zero) and superlinear for large gaps (in-sample entities are amplified to α ≈ 2–3). Including `T*` mirrors the prior prompt used during decoding.
+`CADCalibrator` measures the model's memorisation for each (entity, date) pair using a **completion-based probe**. The prompt `"[T*]\n\nAfter {date}, {entity} stock went"` is fed through the model in plain completion mode (no chat template), and the logits for `"up"` vs `"down"` tokens are extracted. The penalty is set via **profiled logit-gap normalization**: `α = gap / gap_p95 * α_target`, where `gap_p95` is the 95th percentile of the model's logit gap distribution (obtained from a one-time profiling run). This maps the P95 in-sample gap to α=3.0 regardless of model architecture, while preserving relative ordering. Falls back to `α = exp(gap) − 1` when no profile is available. Including `T*` mirrors the prior prompt used during decoding.
 
 ## Core modules (technical details)
 
@@ -59,8 +59,9 @@ The “prior” is not neutral. We explicitly **trigger cheating** in the prior 
 - Implements **CADCalibrator** to set α per (entity, date) pair.
 - Uses a **completion-based probe** in plain tokenisation mode (no chat template): `”[T*]\n\nAfter 2018-06-15, NVDA stock went”`.
 - Extracts logits for `”up”` vs `”down”` tokens at the next-token position.
-- Maps to α via `α = exp(|ℓ_up − ℓ_down|) − 1` (parameter-free exponential logit-gap transform). Approximately linear for small gaps, superlinear for large gaps. The completion format avoids safety refusals and signal dilution that affect yes/no question probes.
+- Maps to α via profiled normalization: `α = gap / gap_p95 * 3.0` (model-specific P95 from a profiling run). Falls back to `exp(gap) − 1` without a profile. The completion format avoids safety refusals and signal dilution that affect yes/no question probes.
 - Date-aware: for in-sample dates the model produces a large logit gap yielding α ≈ 2–3; for out-of-sample dates beyond the training cutoff the gap is small yielding α < 1, correctly reducing penalisation when no look-ahead information exists.
+- Run `python -m cad.discovery.profiler` once per model to compute `gap_p95` and store it in the discovery JSON.
 
 ## Adversarial Bias Discovery via DSPy (`cad/discovery/`)
 

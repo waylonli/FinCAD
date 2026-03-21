@@ -82,6 +82,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--rebalance-freq", default="M",
                    help="Rebalance frequency: M=monthly, Q=quarterly, W=weekly (pandas offset alias)")
     g.add_argument("--initial-capital", type=float, default=100_000.0)
+    g.add_argument("--liquidity-pct", type=float, default=0.01,
+                   help="Max order size as fraction of 20-day ADV (e.g. 0.01 = 1%%). "
+                   "0 = no limit. Default: 0.01 (1%%).")
 
     # Data
     g = p.add_argument_group("Data")
@@ -137,18 +140,27 @@ def load_price_data(path: str | Path, ticker: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Commission model — Moomoo US standard fees
+# Commission model — notional-based (basis points of trade value)
+# Ref: Frazzini, Israel & Moskowitz (2018) "Trading Costs" — median 4.9 bps,
+#      value-weighted avg 9.5 bps across $1.7T of live AQR/DFA trades.
+#      10 bps is a defensible central estimate for large/mid-cap US equities
+#      over 2000–2024, covering commission + half-spread + market impact.
+#      This is split-invariant: the fee scales with notional value, not share
+#      count, so split-adjusted prices do not inflate commissions.
 # ---------------------------------------------------------------------------
 
-COMMISSION_PER_SHARE = 0.0049   # USD per share
-COMMISSION_MIN_ORDER = 0.99     # USD minimum per order
+COMMISSION_BPS = 10.0  # basis points of trade notional (one-way)
 
 
-def compute_commission(shares: int) -> float:
-    """Moomoo US equity commission: $0.0049/share, min $0.99/order."""
-    if shares <= 0:
+def compute_commission(shares: int, price: float) -> float:
+    """Notional-based commission: *COMMISSION_BPS* bps of trade value.
+
+    Returns ``shares * price * COMMISSION_BPS / 10_000``.
+    Split-invariant — the fee depends only on notional value, not share count.
+    """
+    if shares <= 0 or price <= 0:
         return 0.0
-    return max(shares * COMMISSION_PER_SHARE, COMMISSION_MIN_ORDER)
+    return shares * price * COMMISSION_BPS / 10_000
 
 
 # ---------------------------------------------------------------------------
@@ -174,17 +186,16 @@ class SimplePortfolio:
 
     def buy(self, price: float, qty: int) -> int:
         """Buy *qty* shares at *price*. Returns shares actually bought."""
+        if qty <= 0 or price <= 0:
+            return 0
+        # Max affordable shares: cash = qty * price * (1 + bps/10000)
+        cost_per_share = price * (1 + COMMISSION_BPS / 10_000)
+        max_affordable = int(self.cash / cost_per_share)
+        qty = min(qty, max_affordable)
         if qty <= 0:
             return 0
         cost = qty * price
-        commission = compute_commission(qty)
-        # Reduce qty if we can't afford it
-        while qty > 0 and qty * price + compute_commission(qty) > self.cash:
-            qty -= 1
-        if qty <= 0:
-            return 0
-        cost = qty * price
-        commission = compute_commission(qty)
+        commission = compute_commission(qty, price)
         # Update cost basis (weighted avg, inclusive of commission)
         total_shares = self.shares + qty
         if total_shares > 0:
@@ -200,7 +211,7 @@ class SimplePortfolio:
         if qty <= 0:
             return 0
         proceeds = qty * price
-        commission = compute_commission(qty)
+        commission = compute_commission(qty, price)
         self.cash += proceeds - commission
         self.shares -= qty
         self.total_commission += commission
@@ -279,9 +290,9 @@ def buy_and_hold(
     """Return daily portfolio values for a buy-and-hold strategy.
 
     Buys at the first day's **open** (via *open_series*) for a fair comparison
-    with the LLM strategy which also executes at the open.  Moomoo commission
-    is deducted on the initial purchase.  Daily values are then
-    marked-to-market using *val_series* (adjusted_close).
+    with the LLM strategy which also executes at the open.  Commission
+    (notional-based) is deducted on the initial purchase.  Daily values are
+    then marked-to-market using *val_series* (adjusted_close).
 
     If *open_series* is ``None``, falls back to buying at the first day's
     adjusted_close (legacy behaviour).
@@ -290,12 +301,9 @@ def buy_and_hold(
         entry_price = open_series.iloc[0]
     else:
         entry_price = val_series.iloc[0]
-    shares = int(initial_capital // entry_price)
-    commission = compute_commission(shares)
-    # Reduce shares if commission makes it unaffordable
-    while shares > 0 and shares * entry_price + commission > initial_capital:
-        shares -= 1
-        commission = compute_commission(shares)
+    cost_per_share = entry_price * (1 + COMMISSION_BPS / 10_000)
+    shares = int(initial_capital / cost_per_share)
+    commission = compute_commission(shares, entry_price)
     leftover = initial_capital - shares * entry_price - commission
     return shares * val_series + leftover
 
@@ -488,8 +496,10 @@ def print_summary(result: dict, args: argparse.Namespace) -> None:
     print(f"  SINGLE-STOCK BACKTEST: {args.ticker}  [{args.decoding_mode.upper()}]")
     print(f"  Period: {args.start_date} → {args.end_date}")
     print(f"  Risk-free rate: {RF_ANNUAL:.1%}  (historical average)")
-    print(f"  Commission: ${COMMISSION_PER_SHARE}/share, "
-          f"min ${COMMISSION_MIN_ORDER}/order (Moomoo US)")
+    print(f"  Commission: {COMMISSION_BPS:.0f} bps of trade value "
+          f"(Frazzini et al. 2018)")
+    if hasattr(args, 'liquidity_pct') and args.liquidity_pct > 0:
+        print(f"  Liquidity cap: {args.liquidity_pct:.2%} of 20-day ADV")
     print("=" * 64)
 
     def _fmt(metrics: dict, label: str) -> None:
@@ -581,12 +591,16 @@ def main(argv=None) -> None:
 
     calibrator = None
     if args.use_calibrator:
+        logit_gap_profile = None
+        if neg_prompt_builder is not None:
+            logit_gap_profile = getattr(neg_prompt_builder.instruction, "logit_gap_profile", None)
         calibrator = CADCalibrator(
             adapter.model,
             adapter.tokenizer,
             device=adapter.device,
             use_chat_template=args.use_chat_template,
             optimized_instruction=neg_prompt_builder.instruction.instruction if neg_prompt_builder else "",
+            logit_gap_profile=logit_gap_profile,
         )
 
     agent = TradingAgent(
@@ -599,6 +613,7 @@ def main(argv=None) -> None:
         max_new_tokens=args.max_new_tokens,
         use_calibrator=args.use_calibrator,
         neg_prompt_builder=neg_prompt_builder,
+        liquidity_pct=args.liquidity_pct,
     )
 
     # ---- Run backtest ----
@@ -652,8 +667,8 @@ def main(argv=None) -> None:
             "rebalance_freq": args.rebalance_freq,
             "initial_capital": args.initial_capital,
             "rf_annual": RF_ANNUAL,
-            "commission_per_share": COMMISSION_PER_SHARE,
-            "commission_min_order": COMMISSION_MIN_ORDER,
+            "commission_bps": COMMISSION_BPS,
+            "liquidity_pct": args.liquidity_pct,
             "total_commission": result["total_commission"],
             "strategy": result["strategy_metrics"],
             "buy_and_hold": result["benchmark_metrics"],

@@ -263,6 +263,7 @@ class TradingAgent:
         max_new_tokens: int = 256,
         use_calibrator: bool = False,
         neg_prompt_builder: Optional["NegativePromptBuilder"] = None,
+        liquidity_pct: float = 0.0,
         **kwargs,
     ) -> None:
         self.decoder = decoder
@@ -274,6 +275,7 @@ class TradingAgent:
         self.max_new_tokens = max_new_tokens
         self.use_calibrator = use_calibrator
         self.neg_prompt_builder = neg_prompt_builder
+        self.liquidity_pct = liquidity_pct
 
     # ----- public API -----
 
@@ -306,14 +308,26 @@ class TradingAgent:
         """
         summary = build_financial_summary(ticker, date, price_df)
 
-        # Compute allowed actions (like ai-hedge-fund's compute_allowed_actions)
-        # Reserve cash for commission: $0.0049/share, min $0.99/order
+        # Compute allowed actions — max affordable shares given notional commission
         if current_price > 0:
-            max_buy = int((cash - 0.99) // (current_price + 0.0049))
+            max_buy = int(cash / (current_price * 1.001))  # ~10 bps headroom
             max_buy = max(max_buy, 0)
         else:
             max_buy = 0
         max_sell = shares
+
+        # Liquidity cap: limit order size to % of 20-day average daily volume
+        if self.liquidity_pct > 0 and "volume" in price_df.columns:
+            vol_df = price_df[
+                (price_df["symbol"] == ticker) & (price_df["date"] < date)
+            ].sort_values("date").tail(20)
+            if not vol_df.empty:
+                adv = vol_df["volume"].mean()
+                if adv > 0 and not np.isnan(adv):
+                    vol_cap = int(adv * self.liquidity_pct)
+                    if vol_cap > 0:
+                        max_buy = min(max_buy, vol_cap)
+                        max_sell = min(max_sell, vol_cap)
         allowed_lines = []
         if max_buy > 0:
             allowed_lines.append(f"- buy: up to {max_buy} shares (max cost ${max_buy * current_price:,.2f})")

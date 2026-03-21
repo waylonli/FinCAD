@@ -50,6 +50,7 @@ class OptimizedInstruction:
     model_name: str
     score: float
     metadata: Dict[str, Any] = field(default_factory=dict)
+    logit_gap_profile: Optional[Dict[str, Any]] = field(default=None)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -64,6 +65,7 @@ class OptimizedInstruction:
             model_name=d["model_name"],
             score=d["score"],
             metadata=d.get("metadata", {}),
+            logit_gap_profile=d.get("logit_gap_profile"),
         )
 
     @classmethod

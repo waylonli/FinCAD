@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
 import math
 
@@ -11,6 +11,8 @@ import torch
 logger = logging.getLogger(__name__)
 
 _COMPLETION_TEMPLATE = "After {date}, {entity} stock went"
+
+_ALPHA_CAP = 4.0
 
 
 @dataclass
@@ -27,16 +29,11 @@ class CADCalibrator:
 
     Uses a completion prompt ``"[T*] After {date}, {entity} stock went"``
     and compares logits for "up" vs "down" tokens at the next-token position.
-    This avoids:
-    - Safety refusals (plain completion, not a question)
-    - Signal dilution (100% of signal in the measured token)
-    - Chat template artifacts (always uses raw tokenization)
 
-    The logit gap between "up" and "down" is mapped to α via an
-    exponential transform: α = exp(gap) − 1.  This is approximately
-    linear for small gaps (out-of-sample entities stay near the raw
-    gap) and superlinear for large gaps (in-sample entities are
-    amplified to α ≈ 2–3).
+    The raw logit gap is mapped to α using either:
+    - **Profiled normalization** (preferred): ``α = gap / gap_p95 * α_target``,
+      where ``gap_p95`` is obtained from a model-specific profiling run.
+    - **Exponential fallback**: ``α = exp(gap) − 1`` when no profile is available.
     """
 
     def __init__(
@@ -46,6 +43,7 @@ class CADCalibrator:
         device: str,
         use_chat_template: bool = False,
         optimized_instruction: str = "",
+        logit_gap_profile: Optional[Dict[str, float]] = None,
         **kwargs,
     ):
         self.model = model
@@ -55,6 +53,16 @@ class CADCalibrator:
         # Pre-compute token IDs for "up" and "down" variants
         self._up_ids = self._token_ids([" up", " Up", "up", "Up"])
         self._down_ids = self._token_ids([" down", " Down", "down", "Down"])
+
+        # Normalization from profiling
+        self._gap_p95 = None
+        self._alpha_target = 3.0
+        if logit_gap_profile is not None:
+            self._gap_p95 = logit_gap_profile.get("gap_p95")
+            self._alpha_target = logit_gap_profile.get("alpha_target", 3.0)
+            if self._gap_p95 is not None and self._gap_p95 > 0:
+                logger.info("Using profiled normalization: gap_p95=%.3f α_target=%.1f",
+                            self._gap_p95, self._alpha_target)
 
     def calibrate_alpha(
         self,
@@ -71,10 +79,13 @@ class CADCalibrator:
 
         entropy, p_up, p_down, l_up, l_down = self._probe(prompt)
 
-        # α = exp(gap) − 1: approximately linear for small gaps,
-        # superlinear for large gaps.  No free parameters.
         gap = abs(l_up - l_down)
-        alpha = min(math.exp(gap) - 1.0, 5.0)
+        if self._gap_p95 is not None and self._gap_p95 > 0:
+            # Model-specific linear normalization from profiling
+            alpha = min(gap / self._gap_p95 * self._alpha_target, _ALPHA_CAP)
+        else:
+            # Fallback: exponential transform (backward compatible)
+            alpha = min(math.exp(gap) - 1.0, _ALPHA_CAP)
 
         preferred = "up" if l_up > l_down else "down"
         logger.info(

@@ -298,12 +298,16 @@ def _run_on_demand_scoring(
 
     calibrator = None
     if args.use_calibrator:
+        logit_gap_profile = None
+        if neg_prompt_builder is not None:
+            logit_gap_profile = getattr(neg_prompt_builder.instruction, "logit_gap_profile", None)
         calibrator = CADCalibrator(
             adapter.model,
             adapter.tokenizer,
             device=adapter.device,
             use_chat_template=args.use_chat_template,
             optimized_instruction=neg_prompt_builder.instruction.instruction if neg_prompt_builder else "",
+            logit_gap_profile=logit_gap_profile,
         )
 
     scoring_config = ScoringConfig(

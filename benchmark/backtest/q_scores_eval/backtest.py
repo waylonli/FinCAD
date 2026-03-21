@@ -54,9 +54,7 @@ class BacktestConfig:
     periods_per_year: int = 252
     name: str = "quality_factor"
     initial_capital: float = 1_000_000.0
-    commission_min: float = 0.99
-    commission_rate_above_dollar: float = 0.0049
-    commission_rate_below_dollar: float = 0.0005
+    commission_bps: float = 10.0  # bps of trade notional (Frazzini et al. 2018)
     max_gross_exposure: float = 1.0
     benchmark_price_path: Optional[str] = None
     benchmark_price_column: str = "close"
@@ -917,11 +915,6 @@ def _compute_performance_metrics(returns: pd.Series, config: BacktestConfig) -> 
 
 def _calculate_commission(price: float, shares: float, config: BacktestConfig) -> float:
     quantity = abs(shares)
-    if quantity == 0:
+    if quantity == 0 or price <= 0:
         return 0.0
-    rate = (
-        config.commission_rate_above_dollar
-        if price >= 1.0
-        else config.commission_rate_below_dollar
-    )
-    return max(rate * quantity, config.commission_min)
+    return quantity * price * config.commission_bps / 10_000
