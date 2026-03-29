@@ -264,6 +264,9 @@ class TradingAgent:
         use_calibrator: bool = False,
         neg_prompt_builder: Optional["NegativePromptBuilder"] = None,
         liquidity_pct: float = 0.0,
+        anonymizer: Optional[object] = None,
+        anonymize_tickers: Optional[List[str]] = None,
+        anonymize_companies: Optional[List[str]] = None,
         **kwargs,
     ) -> None:
         self.decoder = decoder
@@ -276,6 +279,9 @@ class TradingAgent:
         self.use_calibrator = use_calibrator
         self.neg_prompt_builder = neg_prompt_builder
         self.liquidity_pct = liquidity_pct
+        self.anonymizer = anonymizer
+        self.anonymize_tickers = anonymize_tickers
+        self.anonymize_companies = anonymize_companies
 
     # ----- public API -----
 
@@ -309,8 +315,9 @@ class TradingAgent:
         summary = build_financial_summary(ticker, date, price_df)
 
         # Compute allowed actions — max affordable shares given notional commission
+        # Compute allowed actions
         if current_price > 0:
-            max_buy = int(cash / (current_price * 1.001))  # ~10 bps headroom
+            max_buy = int((cash - 0.99) // (current_price + 0.0049))
             max_buy = max(max_buy, 0)
         else:
             max_buy = 0
@@ -347,6 +354,14 @@ class TradingAgent:
                 allowed_actions=allowed_actions,
             )
         )
+
+        # Anonymise the context prompt (prior prompt keeps real ticker for CAD)
+        if self.anonymizer is not None:
+            context_prompt = self.anonymizer.desensitize(
+                context_prompt,
+                tickers=self.anonymize_tickers,
+                companies=self.anonymize_companies,
+            )
 
         # Resolve alpha
         alpha = self.cad_alpha

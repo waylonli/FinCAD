@@ -36,6 +36,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +93,15 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Path to local price CSV (with date, symbol, adjusted_close). "
                    "If omitted, tries abrdn-risk-factor-eval/data/price/price_data.csv")
 
+    # Anonymisation (Experiment 3)
+    g = p.add_argument_group("Anonymisation")
+    g.add_argument("--anonymize", action="store_true",
+                   help="Replace ticker and company name with generic labels in the "
+                   "context prompt (for entity-anonymisation experiments).")
+    g.add_argument("--entity-file", default=None,
+                   help="Path to entity.json (ticker↔company mapping). "
+                   "Default: <project_root>/utils/entity.json")
+
     # Output
     g = p.add_argument_group("Output")
     g.add_argument("--results-file", default=None, help="Per-decision JSONL")
@@ -141,22 +151,24 @@ def load_price_data(path: str | Path, ticker: str) -> pd.DataFrame:
 
 # ---------------------------------------------------------------------------
 # Commission model — notional-based (basis points of trade value)
-# Ref: Frazzini, Israel & Moskowitz (2018) "Trading Costs" — median 4.9 bps,
-#      value-weighted avg 9.5 bps across $1.7T of live AQR/DFA trades.
-#      10 bps is a defensible central estimate for large/mid-cap US equities
-#      over 2000–2024, covering commission + half-spread + market impact.
-#      This is split-invariant: the fee scales with notional value, not share
-#      count, so split-adjusted prices do not inflate commissions.
+# Note: commission is deducted mechanically from the portfolio but is NOT
+# mentioned in the LLM prompt, to avoid introducing asymmetric context
+# between the context prompt and the CAD prior prompt.
+#
+# 10 bps is a central estimate for large/mid-cap US equities covering
+# commission + half-spread + market impact (Novy-Marx & Velikov 2016 RFS).
+# This is split-invariant: fees scale with notional value, not share count,
+# so split-adjusted prices do not inflate commissions.
 # ---------------------------------------------------------------------------
 
 COMMISSION_BPS = 10.0  # basis points of trade notional (one-way)
 
 
-def compute_commission(shares: int, price: float) -> float:
-    """Notional-based commission: *COMMISSION_BPS* bps of trade value.
+def compute_commission(shares: int, price: float = 0.0) -> float:
+    """Notional-based commission: COMMISSION_BPS bps of trade value.
 
-    Returns ``shares * price * COMMISSION_BPS / 10_000``.
     Split-invariant — the fee depends only on notional value, not share count.
+    Falls back to $0 if price is unknown (backward compat).
     """
     if shares <= 0 or price <= 0:
         return 0.0
@@ -186,12 +198,13 @@ class SimplePortfolio:
 
     def buy(self, price: float, qty: int) -> int:
         """Buy *qty* shares at *price*. Returns shares actually bought."""
-        if qty <= 0 or price <= 0:
+        if qty <= 0:
             return 0
-        # Max affordable shares: cash = qty * price * (1 + bps/10000)
-        cost_per_share = price * (1 + COMMISSION_BPS / 10_000)
-        max_affordable = int(self.cash / cost_per_share)
-        qty = min(qty, max_affordable)
+        cost = qty * price
+        commission = compute_commission(qty, price)
+        # Reduce qty if we can't afford it
+        while qty > 0 and qty * price + compute_commission(qty, price) > self.cash:
+            qty -= 1
         if qty <= 0:
             return 0
         cost = qty * price
@@ -290,9 +303,9 @@ def buy_and_hold(
     """Return daily portfolio values for a buy-and-hold strategy.
 
     Buys at the first day's **open** (via *open_series*) for a fair comparison
-    with the LLM strategy which also executes at the open.  Commission
-    (notional-based) is deducted on the initial purchase.  Daily values are
-    then marked-to-market using *val_series* (adjusted_close).
+    with the LLM strategy which also executes at the open.  Moomoo commission
+    is deducted on the initial purchase.  Daily values are then
+    marked-to-market using *val_series* (adjusted_close).
 
     If *open_series* is ``None``, falls back to buying at the first day's
     adjusted_close (legacy behaviour).
@@ -301,9 +314,12 @@ def buy_and_hold(
         entry_price = open_series.iloc[0]
     else:
         entry_price = val_series.iloc[0]
-    cost_per_share = entry_price * (1 + COMMISSION_BPS / 10_000)
-    shares = int(initial_capital / cost_per_share)
+    shares = int(initial_capital // entry_price)
     commission = compute_commission(shares, entry_price)
+    # Reduce shares if commission makes it unaffordable
+    while shares > 0 and shares * entry_price + commission > initial_capital:
+        shares -= 1
+        commission = compute_commission(shares, entry_price)
     leftover = initial_capital - shares * entry_price - commission
     return shares * val_series + leftover
 
@@ -458,11 +474,9 @@ def run_single_stock_backtest(
             results_fh.close()
 
     # Build value series
-    val_series = pd.Series(
-        [v["value"] for v in daily_values],
-        index=pd.DatetimeIndex([v["date"] for v in daily_values]),
-        name="strategy",
-    )
+    idx = pd.DatetimeIndex([v["date"] for v in daily_values])
+    val_series = pd.Series([v["value"] for v in daily_values], index=idx, name="strategy")
+
     bnh_series = buy_and_hold(ts_val, initial_capital, open_series=ts_open)
     bnh_series.name = "buy_and_hold"
 
@@ -496,10 +510,11 @@ def print_summary(result: dict, args: argparse.Namespace) -> None:
     print(f"  SINGLE-STOCK BACKTEST: {args.ticker}  [{args.decoding_mode.upper()}]")
     print(f"  Period: {args.start_date} → {args.end_date}")
     print(f"  Risk-free rate: {RF_ANNUAL:.1%}  (historical average)")
-    print(f"  Commission: {COMMISSION_BPS:.0f} bps of trade value "
-          f"(Frazzini et al. 2018)")
+    print(f"  Commission: {COMMISSION_BPS:.0f} bps of trade notional (split-invariant)")
     if hasattr(args, 'liquidity_pct') and args.liquidity_pct > 0:
         print(f"  Liquidity cap: {args.liquidity_pct:.2%} of 20-day ADV")
+    if hasattr(args, 'anonymize') and args.anonymize:
+        print(f"  Anonymisation: ON (context prompt only)")
     print("=" * 64)
 
     def _fmt(metrics: dict, label: str) -> None:
@@ -518,8 +533,11 @@ def print_summary(result: dict, args: argparse.Namespace) -> None:
     buys = sum(1 for d in result["decisions"] if d["signal"] == "buy")
     sells = sum(1 for d in result["decisions"] if d["signal"] == "sell")
     holds = sum(1 for d in result["decisions"] if d["signal"] == "hold")
+    real_buys = sum(1 for d in result["decisions"] if d["signal"] == "buy" and d["executed_shares"] > 0)
+    real_sells = sum(1 for d in result["decisions"] if d["signal"] == "sell" and d["executed_shares"] > 0)
     total_commission = result.get("total_commission", 0.0)
     print(f"\n  Decisions: {n_decisions} total — {buys} buy, {sells} sell, {holds} hold")
+    print(f"  Executed trades (non-zero): {real_buys} buys, {real_sells} sells")
     print(f"  Total commission paid: ${total_commission:,.2f}")
 
     alphas = [d["alpha_used"] for d in result["decisions"]]
@@ -603,6 +621,19 @@ def main(argv=None) -> None:
             logit_gap_profile=logit_gap_profile,
         )
 
+    # ---- Anonymiser (optional) ----
+    anonymizer = None
+    if args.anonymize:
+        from utils.anonymizer import LegacyAnonymizer
+        entity_path = args.entity_file or str(PROJECT_ROOT / "utils" / "entity.json")
+        anonymizer = LegacyAnonymizer(entity_file=entity_path)
+        # Resolve company name for the target ticker
+        company_name = None
+        if args.ticker in anonymizer.tickers:
+            idx = anonymizer.tickers.index(args.ticker)
+            company_name = anonymizer.companies[idx]
+        logger.info("Anonymisation ON — ticker=%s  company=%s", args.ticker, company_name)
+
     agent = TradingAgent(
         decoder,
         calibrator=calibrator,
@@ -614,6 +645,9 @@ def main(argv=None) -> None:
         use_calibrator=args.use_calibrator,
         neg_prompt_builder=neg_prompt_builder,
         liquidity_pct=args.liquidity_pct,
+        anonymizer=anonymizer,
+        anonymize_tickers=[args.ticker] if args.anonymize else None,
+        anonymize_companies=[company_name] if args.anonymize and company_name else None,
     )
 
     # ---- Run backtest ----
@@ -669,6 +703,7 @@ def main(argv=None) -> None:
             "rf_annual": RF_ANNUAL,
             "commission_bps": COMMISSION_BPS,
             "liquidity_pct": args.liquidity_pct,
+            "anonymize": args.anonymize,
             "total_commission": result["total_commission"],
             "strategy": result["strategy_metrics"],
             "buy_and_hold": result["benchmark_metrics"],
@@ -676,6 +711,8 @@ def main(argv=None) -> None:
             "n_buys": sum(1 for d in decisions if d["signal"] == "buy"),
             "n_sells": sum(1 for d in decisions if d["signal"] == "sell"),
             "n_holds": sum(1 for d in decisions if d["signal"] == "hold"),
+            "n_real_buys": sum(1 for d in decisions if d["signal"] == "buy" and d["executed_shares"] > 0),
+            "n_real_sells": sum(1 for d in decisions if d["signal"] == "sell" and d["executed_shares"] > 0),
             "alpha_stats": alpha_stats,
         }
         with open(out, "w") as f:

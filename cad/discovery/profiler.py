@@ -130,71 +130,95 @@ def main(argv=None):
         oos_range=(args.oos_start, args.oos_end),
     )
 
-    # Run probes and collect gaps
+    # Run probes and collect gaps + entropy
     all_gaps = []
     in_sample_gaps = []
     oos_gaps = []
+    all_entropies = []
+    in_sample_entropies = []
+    oos_entropies = []
 
     def probe_pairs(pairs, label):
         gaps = []
+        entropies = []
         for i, (ticker, date) in enumerate(pairs):
             result = calibrator.calibrate_alpha(ticker, date=date)
-            gaps.append(result.entropy)  # entropy field stores raw gap
+            gaps.append(abs(result.p_yes - result.p_no))  # use p_yes/p_no gap as raw stat
+            entropies.append(result.entropy)
             if (i + 1) % 50 == 0:
                 logger.info("[%s] Probed %d/%d", label, i + 1, len(pairs))
-        return gaps
+        return gaps, entropies
 
     logger.info("Probing in-sample pairs ...")
-    in_sample_gaps = probe_pairs(in_sample_pairs, "in-sample")
+    in_sample_gaps, in_sample_entropies = probe_pairs(in_sample_pairs, "in-sample")
     all_gaps.extend(in_sample_gaps)
+    all_entropies.extend(in_sample_entropies)
 
     logger.info("Probing out-of-sample pairs ...")
-    oos_gaps = probe_pairs(oos_pairs, "oos")
+    oos_gaps, oos_entropies = probe_pairs(oos_pairs, "oos")
     all_gaps.extend(oos_gaps)
+    all_entropies.extend(oos_entropies)
 
     # Compute statistics
     a = np.array(all_gaps)
     a_in = np.array(in_sample_gaps) if in_sample_gaps else np.array([0.0])
+    e_all = np.array(all_entropies)
+    e_in = np.array(in_sample_entropies) if in_sample_entropies else np.array([1.0])
+    e_oos = np.array(oos_entropies) if oos_entropies else np.array([1.0])
+
+    # Auto-computed anomaly threshold: OOS_mean - IS_std
+    # The calibrator uses this formula at runtime; we store the ingredients.
+    anomaly_threshold = float(e_oos.mean() - e_in.std())
 
     profile = {
+        # Legacy gap stats (kept for backward compat)
         "gap_p95": float(np.percentile(a_in, 95)),
-        "gap_p75": float(np.percentile(a, 75)),
-        "gap_p50": float(np.percentile(a, 50)),
-        "gap_p25": float(np.percentile(a, 25)),
-        "gap_p05": float(np.percentile(a, 5)),
         "gap_mean": float(a.mean()),
         "gap_std": float(a.std()),
-        "gap_min": float(a.min()),
-        "gap_max": float(a.max()),
-        "gap_in_sample_mean": float(a_in.mean()),
-        "gap_in_sample_std": float(a_in.std()),
+        # Entropy stats (calibrator auto-computes threshold from these)
+        "entropy_in_sample_mean": float(e_in.mean()),
+        "entropy_in_sample_std": float(e_in.std()),
+        "entropy_in_sample_p25": float(np.percentile(e_in, 25)),
+        "entropy_in_sample_p50": float(np.percentile(e_in, 50)),
+        "entropy_oos_mean": float(e_oos.mean()),
+        "entropy_oos_std": float(e_oos.std()),
+        "entropy_oos_p05": float(np.percentile(e_oos, 5)),
+        "entropy_oos_p50": float(np.percentile(e_oos, 50)),
+        # Alpha config
+        "alpha_max": 12.0,
+        "alpha_min": 0.0,
+        "alpha_target": args.alpha_target,
+        # Metadata
         "n_probes": len(all_gaps),
         "n_in_sample": len(in_sample_gaps),
         "n_out_of_sample": len(oos_gaps),
-        "alpha_target": args.alpha_target,
         "profiled_at": datetime.now().isoformat(timespec="seconds"),
     }
 
     # Print summary
     print("\n" + "=" * 60)
-    print(f"  Logit Gap Profile: {args.model_name}")
+    print(f"  Entropy Profile: {args.model_name}")
     print("=" * 60)
     print(f"  Total probes:     {profile['n_probes']}")
     print(f"  In-sample:        {profile['n_in_sample']}")
     print(f"  Out-of-sample:    {profile['n_out_of_sample']}")
-    print(f"\n  All gaps:")
-    print(f"    mean={profile['gap_mean']:.3f}  std={profile['gap_std']:.3f}")
-    print(f"    min={profile['gap_min']:.3f}  p25={profile['gap_p25']:.3f}  "
-          f"p50={profile['gap_p50']:.3f}  p75={profile['gap_p75']:.3f}  "
-          f"max={profile['gap_max']:.3f}")
-    print(f"\n  In-sample gaps:")
-    print(f"    mean={profile['gap_in_sample_mean']:.3f}  std={profile['gap_in_sample_std']:.3f}")
-    print(f"    P95 (used for normalization): {profile['gap_p95']:.3f}")
-    print(f"\n  Alpha mapping (α_target={args.alpha_target:.1f}):")
-    print(f"    gap=P25 → α={profile['gap_p25'] / profile['gap_p95'] * args.alpha_target:.2f}")
-    print(f"    gap=P50 → α={profile['gap_p50'] / profile['gap_p95'] * args.alpha_target:.2f}")
-    print(f"    gap=P75 → α={profile['gap_p75'] / profile['gap_p95'] * args.alpha_target:.2f}")
-    print(f"    gap=P95 → α={args.alpha_target:.2f}")
+    print(f"\n  Entropy distribution:")
+    print(f"    In-sample:  mean={e_in.mean():.3f}  std={e_in.std():.3f}  "
+          f"p25={np.percentile(e_in, 25):.3f}  p50={np.percentile(e_in, 50):.3f}")
+    print(f"    OOS:        mean={e_oos.mean():.3f}  std={e_oos.std():.3f}  "
+          f"p05={np.percentile(e_oos, 5):.3f}  p50={np.percentile(e_oos, 50):.3f}")
+    print(f"\n  Auto-computed anomaly threshold (OOS_mean - IS_std): {anomaly_threshold:.3f}")
+    print(f"  → Probes above this get α=0 (within OOS confidence range)")
+    print(f"  → Probes below this get α scaled up (anomalously confident)")
+    amax = 12.0
+    print(f"\n  Alpha mapping (α_max={amax:.0f}, cap=3.0, threshold={anomaly_threshold:.3f}):")
+    for h_val in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+        if h_val < anomaly_threshold:
+            confidence = 1.0 - h_val / anomaly_threshold
+            a_val = min(amax * confidence, 3.0)
+            print(f"    H={h_val:.1f} → α={a_val:.2f}")
+        else:
+            print(f"    H={h_val:.1f} → α=0.00 (above threshold)")
     print("=" * 60 + "\n")
 
     # Update discovery JSON in-place

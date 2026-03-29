@@ -54,7 +54,7 @@ class BacktestConfig:
     periods_per_year: int = 252
     name: str = "quality_factor"
     initial_capital: float = 1_000_000.0
-    commission_bps: float = 10.0  # bps of trade notional (Frazzini et al. 2018)
+    commission_bps: float = 10.0  # bps of trade notional (Novy-Marx & Velikov 2016 RFS)
     max_gross_exposure: float = 1.0
     benchmark_price_path: Optional[str] = None
     benchmark_price_column: str = "close"

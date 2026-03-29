@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 _COMPLETION_TEMPLATE = "After {date}, {entity} stock went"
 
-_ALPHA_CAP = 4.0
+_ALPHA_CAP = 3.0
 
 
 @dataclass
@@ -30,10 +30,14 @@ class CADCalibrator:
     Uses a completion prompt ``"[T*] After {date}, {entity} stock went"``
     and compares logits for "up" vs "down" tokens at the next-token position.
 
-    The raw logit gap is mapped to α using either:
-    - **Profiled normalization** (preferred): ``α = gap / gap_p95 * α_target``,
-      where ``gap_p95`` is obtained from a model-specific profiling run.
-    - **Exponential fallback**: ``α = exp(gap) − 1`` when no profile is available.
+    Alpha is computed using **entropy-based scaling** (Eq. 6 in the paper):
+        α = α_min + (α_max − α_min) * (1 − Ĥ)
+    where Ĥ is the normalised binary entropy of the up/down distribution.
+
+    When the model is confident (low entropy → strong memorisation), α is high.
+    When the model is uncertain (high entropy → weak/no memorisation), α is low.
+    This naturally assigns low penalties out-of-sample where there is nothing
+    to subtract, and high penalties in-sample where look-ahead bias is strong.
     """
 
     def __init__(
@@ -44,6 +48,8 @@ class CADCalibrator:
         use_chat_template: bool = False,
         optimized_instruction: str = "",
         logit_gap_profile: Optional[Dict[str, float]] = None,
+        alpha_min: float = 0.0,
+        alpha_max: float = 12.0,
         **kwargs,
     ):
         self.model = model
@@ -54,15 +60,25 @@ class CADCalibrator:
         self._up_ids = self._token_ids([" up", " Up", "up", "Up"])
         self._down_ids = self._token_ids([" down", " Down", "down", "Down"])
 
-        # Normalization from profiling
-        self._gap_p95 = None
-        self._alpha_target = 3.0
+        # Entropy-based alpha bounds (model-variant via logit_gap_profile)
+        self._alpha_min = alpha_min
+        self._alpha_max = alpha_max
+        self._entropy_threshold = 0.85  # fallback when no profile
         if logit_gap_profile is not None:
-            self._gap_p95 = logit_gap_profile.get("gap_p95")
-            self._alpha_target = logit_gap_profile.get("alpha_target", 3.0)
-            if self._gap_p95 is not None and self._gap_p95 > 0:
-                logger.info("Using profiled normalization: gap_p95=%.3f α_target=%.1f",
-                            self._gap_p95, self._alpha_target)
+            self._alpha_min = logit_gap_profile.get("alpha_min", alpha_min)
+            self._alpha_max = logit_gap_profile.get("alpha_max", alpha_max)
+            # Auto-compute threshold: OOS_mean - IS_std
+            # This places the threshold one in-sample std below the OOS mean,
+            # ensuring OOS probes (near OOS_mean) get α=0 while in-sample
+            # probes that are anomalously confident get penalised.
+            oos_mean = logit_gap_profile.get("entropy_oos_mean")
+            is_std = logit_gap_profile.get("entropy_in_sample_std")
+            if oos_mean is not None and is_std is not None:
+                self._entropy_threshold = oos_mean - is_std
+            else:
+                self._entropy_threshold = logit_gap_profile.get("entropy_threshold", 0.85)
+        logger.info("Entropy-based alpha: α_min=%.2f  α_max=%.2f  H_thresh=%.3f",
+                     self._alpha_min, self._alpha_max, self._entropy_threshold)
 
     def calibrate_alpha(
         self,
@@ -79,23 +95,31 @@ class CADCalibrator:
 
         entropy, p_up, p_down, l_up, l_down = self._probe(prompt)
 
-        gap = abs(l_up - l_down)
-        if self._gap_p95 is not None and self._gap_p95 > 0:
-            # Model-specific linear normalization from profiling
-            alpha = min(gap / self._gap_p95 * self._alpha_target, _ALPHA_CAP)
+        # Entropy-based alpha: α = α_min + (α_max - α_min) * (1 - Ĥ)
+        # Ĥ ∈ [0, 1]: 0 = fully confident (max penalty), 1 = uniform (min penalty)
+        #
+        # Entropy threshold: when Ĥ > threshold, the model is too uncertain
+        # for the probe to distinguish look-ahead bias from brand priors.
+        # In this regime we set α = 0 to avoid subtracting legitimate reasoning.
+        entropy_threshold = self._entropy_threshold
+        if entropy > entropy_threshold:
+            alpha = 0.0
         else:
-            # Fallback: exponential transform (backward compatible)
-            alpha = min(math.exp(gap) - 1.0, _ALPHA_CAP)
+            # Scale within the confident regime [0, threshold]
+            confidence = 1.0 - entropy / entropy_threshold  # 0 at threshold, 1 at entropy=0
+            alpha = self._alpha_min + (self._alpha_max - self._alpha_min) * confidence
+            alpha = max(0.0, min(alpha, _ALPHA_CAP))
 
+        gap = abs(l_up - l_down)
         preferred = "up" if l_up > l_down else "down"
         logger.info(
-            "Probe %s @ %s → α=%.3f (gap=%.3f) p_up=%.4f p_down=%.4f "
+            "Probe %s @ %s → α=%.3f (entropy=%.3f gap=%.3f) p_up=%.4f p_down=%.4f "
             "logit_up=%.2f logit_down=%.2f preferred=%s",
-            ticker, date, alpha, gap, p_up, p_down, l_up, l_down, preferred,
+            ticker, date, alpha, entropy, gap, p_up, p_down, l_up, l_down, preferred,
         )
         return AlphaCalibrationResult(
             alpha=alpha,
-            entropy=gap,       # raw logit gap stored here for logging
+            entropy=entropy,
             p_yes=p_up,
             p_no=p_down,
             prompt=prompt,
