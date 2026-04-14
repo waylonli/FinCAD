@@ -55,6 +55,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--model-cache-dir", default="../pretrained_models")
     g.add_argument("--use-chat-template", action="store_true")
     g.add_argument("--attn-implementation", default=None)
+    g.add_argument("--peft-adapter", default=None,
+                   help="Path to PEFT/LoRA adapter directory (base model resolved from adapter_config.json)")
 
     # Decoding
     g = p.add_argument_group("Decoding")
@@ -589,6 +591,7 @@ def main(argv=None) -> None:
             use_chat_template=args.use_chat_template,
             cache_dir=args.model_cache_dir,
             attn_implementation=args.attn_implementation,
+            peft_adapter=getattr(args, 'peft_adapter', None),
         )
     )
 
@@ -649,6 +652,11 @@ def main(argv=None) -> None:
         anonymize_tickers=[args.ticker] if args.anonymize else None,
         anonymize_companies=[company_name] if args.anonymize and company_name else None,
     )
+
+    # ---- Entity calibration (date-variance) ----
+    if args.use_calibrator and calibrator is not None:
+        logger.info("Calibrating entity date-variance for %s ...", args.ticker)
+        calibrator.calibrate_entity(args.ticker)
 
     # ---- Run backtest ----
     result = run_single_stock_backtest(

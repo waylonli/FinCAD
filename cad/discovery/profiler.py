@@ -130,52 +130,58 @@ def main(argv=None):
         oos_range=(args.oos_start, args.oos_end),
     )
 
-    # Run probes and collect gaps + entropy
-    all_gaps = []
-    in_sample_gaps = []
-    oos_gaps = []
-    all_entropies = []
+    # Run probes and collect entropy + delta_temporal, grouped by entity
+    from collections import defaultdict
     in_sample_entropies = []
     oos_entropies = []
+    in_sample_deltas = []
+    oos_deltas = []
+    # Per-entity tracking for date-variance analysis
+    entity_is_entropies = defaultdict(list)  # ticker → [H values across dates]
 
-    def probe_pairs(pairs, label):
-        gaps = []
+    def probe_pairs(pairs, label, track_entity=False):
         entropies = []
+        deltas = []
         for i, (ticker, date) in enumerate(pairs):
             result = calibrator.calibrate_alpha(ticker, date=date)
-            gaps.append(abs(result.p_yes - result.p_no))  # use p_yes/p_no gap as raw stat
             entropies.append(result.entropy)
+            deltas.append(result.delta_temporal)
+            if track_entity:
+                entity_is_entropies[ticker].append(result.entropy)
             if (i + 1) % 50 == 0:
                 logger.info("[%s] Probed %d/%d", label, i + 1, len(pairs))
-        return gaps, entropies
+        return entropies, deltas
+
+    # Pre-calibrate all entities so delta_temporal is meaningful
+    unique_tickers = sorted(set(t for t, _ in in_sample_pairs))
+    logger.info("Calibrating %d entities ...", len(unique_tickers))
+    for ticker in unique_tickers:
+        calibrator.calibrate_entity(ticker)
 
     logger.info("Probing in-sample pairs ...")
-    in_sample_gaps, in_sample_entropies = probe_pairs(in_sample_pairs, "in-sample")
-    all_gaps.extend(in_sample_gaps)
-    all_entropies.extend(in_sample_entropies)
+    in_sample_entropies, in_sample_deltas = probe_pairs(
+        in_sample_pairs, "in-sample", track_entity=True)
 
     logger.info("Probing out-of-sample pairs ...")
-    oos_gaps, oos_entropies = probe_pairs(oos_pairs, "oos")
-    all_gaps.extend(oos_gaps)
-    all_entropies.extend(oos_entropies)
+    oos_entropies, oos_deltas = probe_pairs(oos_pairs, "oos")
+
+    # Compute per-entity date-variance: std of entropy across dates for each entity
+    # High std = confidence varies with date = date-specific memorisation
+    # Low std = confidence stable across dates = brand prior
+    entity_stds = []
+    for ticker, hs in entity_is_entropies.items():
+        if len(hs) >= 2:
+            entity_stds.append(np.std(hs))
+    entity_stds = np.array(entity_stds) if entity_stds else np.array([0.0])
 
     # Compute statistics
-    a = np.array(all_gaps)
-    a_in = np.array(in_sample_gaps) if in_sample_gaps else np.array([0.0])
-    e_all = np.array(all_entropies)
     e_in = np.array(in_sample_entropies) if in_sample_entropies else np.array([1.0])
     e_oos = np.array(oos_entropies) if oos_entropies else np.array([1.0])
-
-    # Auto-computed anomaly threshold: OOS_mean - IS_std
-    # The calibrator uses this formula at runtime; we store the ingredients.
-    anomaly_threshold = float(e_oos.mean() - e_in.std())
+    d_in = np.array(in_sample_deltas) if in_sample_deltas else np.array([0.0])
+    d_oos = np.array(oos_deltas) if oos_deltas else np.array([0.0])
 
     profile = {
-        # Legacy gap stats (kept for backward compat)
-        "gap_p95": float(np.percentile(a_in, 95)),
-        "gap_mean": float(a.mean()),
-        "gap_std": float(a.std()),
-        # Entropy stats (calibrator auto-computes threshold from these)
+        # Entropy stats (kept for reference)
         "entropy_in_sample_mean": float(e_in.mean()),
         "entropy_in_sample_std": float(e_in.std()),
         "entropy_in_sample_p25": float(np.percentile(e_in, 25)),
@@ -184,14 +190,27 @@ def main(argv=None):
         "entropy_oos_std": float(e_oos.std()),
         "entropy_oos_p05": float(np.percentile(e_oos, 5)),
         "entropy_oos_p50": float(np.percentile(e_oos, 50)),
+        # Date-ablation delta stats
+        "delta_temporal_is_mean": float(d_in.mean()),
+        "delta_temporal_is_std": float(d_in.std()),
+        "delta_temporal_oos_mean": float(d_oos.mean()),
+        "delta_temporal_oos_std": float(d_oos.std()),
+        # Per-entity date-variance stats (new — for α scaling)
+        # Entities with low date-variance have brand priors, not memorisation
+        "entity_date_variance_mean": float(entity_stds.mean()),
+        "entity_date_variance_std": float(entity_stds.std()),
+        "entity_date_variance_p50": float(np.percentile(entity_stds, 50)),
+        "entity_date_variance_p75": float(np.percentile(entity_stds, 75)),
+        "entity_date_variance_p90": float(np.percentile(entity_stds, 90)),
+        "n_entities_profiled": len(entity_is_entropies),
         # Alpha config
         "alpha_max": 12.0,
         "alpha_min": 0.0,
         "alpha_target": args.alpha_target,
         # Metadata
-        "n_probes": len(all_gaps),
-        "n_in_sample": len(in_sample_gaps),
-        "n_out_of_sample": len(oos_gaps),
+        "n_probes": len(in_sample_entropies) + len(oos_entropies),
+        "n_in_sample": len(in_sample_entropies),
+        "n_out_of_sample": len(oos_entropies),
         "profiled_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -207,18 +226,33 @@ def main(argv=None):
           f"p25={np.percentile(e_in, 25):.3f}  p50={np.percentile(e_in, 50):.3f}")
     print(f"    OOS:        mean={e_oos.mean():.3f}  std={e_oos.std():.3f}  "
           f"p05={np.percentile(e_oos, 5):.3f}  p50={np.percentile(e_oos, 50):.3f}")
-    print(f"\n  Auto-computed anomaly threshold (OOS_mean - IS_std): {anomaly_threshold:.3f}")
-    print(f"  → Probes above this get α=0 (within OOS confidence range)")
-    print(f"  → Probes below this get α scaled up (anomalously confident)")
+    print(f"\n  Date-ablation delta (Δ = H_undated - H_dated):")
+    print(f"    In-sample:  mean={d_in.mean():+.3f}  std={d_in.std():.3f}")
+    print(f"    OOS:        mean={d_oos.mean():+.3f}  std={d_oos.std():.3f}")
+    print(f"\n  Per-entity date-variance (std of entropy across dates):")
+    print(f"    Across {len(entity_is_entropies)} entities:")
+    print(f"    mean={entity_stds.mean():.4f}  std={entity_stds.std():.4f}  "
+          f"p50={np.percentile(entity_stds, 50):.4f}  p75={np.percentile(entity_stds, 75):.4f}  "
+          f"p90={np.percentile(entity_stds, 90):.4f}")
+    print(f"    → High variance = date-specific memorisation (penalise)")
+    print(f"    → Low variance = stable brand prior (do not penalise)")
+    # Show top-5 most date-varying entities
+    entity_std_map = {t: np.std(hs) for t, hs in entity_is_entropies.items() if len(hs) >= 2}
+    sorted_entities = sorted(entity_std_map.items(), key=lambda x: -x[1])
+    print(f"    Top-5 date-varying: {', '.join(f'{t}({s:.3f})' for t,s in sorted_entities[:5])}")
+    print(f"    Bottom-5 (stable):  {', '.join(f'{t}({s:.3f})' for t,s in sorted_entities[-5:])}")
+    print(f"\n  Calibrator config:")
+    print(f"    Δ_oos_baseline (OOS mean + OOS std): {d_oos.mean() + d_oos.std():+.3f}")
+    print(f"    Δ_range (IS std):          {d_in.std():.3f}")
     amax = 12.0
-    print(f"\n  Alpha mapping (α_max={amax:.0f}, cap=3.0, threshold={anomaly_threshold:.3f}):")
-    for h_val in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-        if h_val < anomaly_threshold:
-            confidence = 1.0 - h_val / anomaly_threshold
-            a_val = min(amax * confidence, 3.0)
-            print(f"    H={h_val:.1f} → α={a_val:.2f}")
+    print(f"\n  Alpha mapping (α_max={amax:.0f}, cap=3.0):")
+    for d_val in [-0.1, 0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50]:
+        excess = d_val - d_oos.mean()
+        if excess <= 0:
+            a_val = 0.0
         else:
-            print(f"    H={h_val:.1f} → α=0.00 (above threshold)")
+            a_val = min(amax * excess / max(d_in.std(), 0.05), 3.0)
+        print(f"    Δ={d_val:+.2f} → excess={excess:+.3f} → α={a_val:.2f}")
     print("=" * 60 + "\n")
 
     # Update discovery JSON in-place

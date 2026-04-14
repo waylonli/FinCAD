@@ -372,7 +372,8 @@ class TradingAgent:
                     date=f"{date:%Y-%m-%d}",
                 )
                 alpha = cal.alpha
-                logger.info("Calibrated alpha for %s: %.3f (logit_gap=%.3f, p_up=%.3f, p_down=%.3f)", ticker, alpha, cal.entropy, cal.p_yes, cal.p_no)
+                logger.info("Calibrated alpha for %s: %.3f (H=%.3f, DV=%.4f, Δ=%+.3f, p_up=%.3f, p_down=%.3f)",
+                            ticker, alpha, cal.entropy, cal.entity_date_var, cal.delta_temporal, cal.p_yes, cal.p_no)
             except Exception as exc:
                 logger.warning("Calibrator failed for %s: %s — using static alpha %.2f", ticker, exc, self.cad_alpha)
 

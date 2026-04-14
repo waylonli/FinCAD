@@ -56,11 +56,12 @@ class TransformersLM(BaseLM):
         dtype = torch.bfloat16 if cuda_available else torch.float32
         device_map = device if device != "auto" else ("auto" if cuda_available else None)
 
-        self._tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self._tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         self._hf_model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=dtype,
             device_map=device_map,
+            trust_remote_code=True,
         )
         self._hf_model.eval()
         self._device = next(self._hf_model.parameters()).device
