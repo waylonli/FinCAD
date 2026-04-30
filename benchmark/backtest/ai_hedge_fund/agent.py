@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -208,8 +209,14 @@ def parse_trading_signal(text: str, max_buy: int = 0, max_sell: int = 0) -> Trad
                 if kw in raw_signal:
                     signal = kw
                     break
-            quantity = int(max(0, float(obj.get("quantity", 0))))
-            confidence = int(max(0, min(100, float(obj.get("confidence", 50)))))
+            q_raw = float(obj.get("quantity", 0))
+            if not math.isfinite(q_raw):
+                q_raw = 0.0
+            quantity = int(max(0, min(q_raw, 1e12)))
+            c_raw = float(obj.get("confidence", 50))
+            if not math.isfinite(c_raw):
+                c_raw = 50.0
+            confidence = int(max(0, min(100, c_raw)))
             reasoning = str(obj.get("reasoning", ""))[:300]
             # Clamp quantity to allowed limits
             if signal == "buy":

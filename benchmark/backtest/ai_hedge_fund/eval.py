@@ -72,6 +72,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     g = p.add_argument_group("Generation")
     g.add_argument("--temperature", type=float, default=0.0)
     g.add_argument("--max-new-tokens", type=int, default=256)
+    g.add_argument("--seed", type=int, default=42,
+                   help="Random seed for reproducibility when temperature > 0")
 
     # Calibrator
     g = p.add_argument_group("Calibrator")
@@ -583,6 +585,13 @@ def main(argv=None) -> None:
     from cad import CADConfig, ContextAwareDecoder
     from cad.calibrator import CADCalibrator
     from .agent import TradingAgent
+
+    import random, numpy as np, torch
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
 
     logger.info("Loading model %s ...", args.model_name)
     adapter = TransformersAdapter(

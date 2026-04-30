@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 _DATED_TEMPLATE = "After {date}, {entity} stock went"
 
-_ALPHA_CAP = 3.0
+_ALPHA_CAP = 4.0
 
 
 @dataclass
