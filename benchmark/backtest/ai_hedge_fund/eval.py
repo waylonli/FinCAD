@@ -105,6 +105,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--entity-file", default=None,
                    help="Path to entity.json (ticker↔company mapping). "
                    "Default: <project_root>/utils/entity.json")
+    g.add_argument("--prompt-no-future", action="store_true",
+                   help="Use the strengthened system prompt that explicitly "
+                   "forbids using post-{date} memory (Experiment 3 baseline).")
 
     # Output
     g = p.add_argument_group("Output")
@@ -660,6 +663,7 @@ def main(argv=None) -> None:
         anonymizer=anonymizer,
         anonymize_tickers=[args.ticker] if args.anonymize else None,
         anonymize_companies=[company_name] if args.anonymize and company_name else None,
+        prompt_no_future=args.prompt_no_future,
     )
 
     # ---- Entity calibration (date-variance) ----

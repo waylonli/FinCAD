@@ -63,6 +63,31 @@ Return your decision as a JSON object with exactly these keys:
 Respond with valid JSON only.\
 """
 
+# Stronger prompt that explicitly forbids using post-{date} memory.
+# Used as a baseline mitigation for parametric look-ahead bias (Experiment 3).
+CONTEXT_SYSTEM_NO_FUTURE = """\
+You are a portfolio manager for a single-stock strategy operating *as of {date}*.
+You will be given financial data for {ticker} as of {date}. Your information \
+set is strictly limited to events and prices up to and including {date}; you \
+have NO knowledge of anything that happened after that date.
+
+You must NOT recall, retrieve, or rely on any memory of {ticker}'s future \
+behaviour. Do not reason about post-{date} price movements, news, earnings, \
+products, or events. If your training data contains such information, treat \
+it as inaccessible. Decisions based on post-{date} memory are a violation of \
+these instructions.
+
+You must pick one action and a quantity within the allowed limits.
+
+Return your decision as a JSON object with exactly these keys:
+- "action": one of "buy", "sell", or "hold"
+- "quantity": integer number of shares to trade (0 for hold)
+- "confidence": integer between 0 and 100
+- "reasoning": string with a concise rationale (max 100 chars)
+
+Respond with valid JSON only.\
+"""
+
 CONTEXT_BODY = """\
 === Financial Data for {ticker} as of {date} ===
 
@@ -274,6 +299,7 @@ class TradingAgent:
         anonymizer: Optional[object] = None,
         anonymize_tickers: Optional[List[str]] = None,
         anonymize_companies: Optional[List[str]] = None,
+        prompt_no_future: bool = False,
         **kwargs,
     ) -> None:
         self.decoder = decoder
@@ -289,6 +315,7 @@ class TradingAgent:
         self.anonymizer = anonymizer
         self.anonymize_tickers = anonymize_tickers
         self.anonymize_companies = anonymize_companies
+        self.prompt_no_future = prompt_no_future
 
     # ----- public API -----
 
@@ -350,8 +377,9 @@ class TradingAgent:
         allowed_lines.append("- hold: keep current position")
         allowed_actions = "\n".join(allowed_lines)
 
+        system_template = CONTEXT_SYSTEM_NO_FUTURE if self.prompt_no_future else CONTEXT_SYSTEM
         context_prompt = (
-            CONTEXT_SYSTEM.format(ticker=ticker, date=f"{date:%Y-%m-%d}")
+            system_template.format(ticker=ticker, date=f"{date:%Y-%m-%d}")
             + "\n\n"
             + CONTEXT_BODY.format(
                 ticker=ticker, date=f"{date:%Y-%m-%d}",
