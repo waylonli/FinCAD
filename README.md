@@ -54,8 +54,8 @@ Python 3.10+ and a CUDA-capable GPU are recommended for the 7B–14B models used
 in the paper.
 
 ```bash
-git clone https://github.com/waylonli/look-ahead-bias.git
-cd look-ahead-bias
+git clone https://github.com/waylonli/FinCAD.git
+cd FinCAD
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
