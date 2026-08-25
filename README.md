@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://arxiv.org/abs/2605.24564"><img src="https://img.shields.io/badge/arXiv-2605.24564-b31b1b.svg" alt="arXiv 2605.24564"></a>
   <img src="https://img.shields.io/badge/EMNLP-2026%20Main-6f42c1" alt="EMNLP 2026 Main Conference">
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776ab" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/License-MIT-2ea44f" alt="MIT License">
