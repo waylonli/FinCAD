@@ -1,0 +1,40 @@
+{
+  "instruction": "Given a specific financial task, ask the Language Model to recall what it has learned from its training data about the task and predict a one-word outcome.",
+  "model_name": "mistralai/Mistral-7B-Instruct-v0.3",
+  "score": 0.5,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.4454293951238405,
+    "entropy_in_sample_std": 0.12790380990717423,
+    "entropy_in_sample_p25": 0.3567009587873772,
+    "entropy_in_sample_p50": 0.436780142642339,
+    "entropy_oos_mean": 0.3236453748791625,
+    "entropy_oos_std": 0.10319381627902342,
+    "entropy_oos_p05": 0.15784613225525335,
+    "entropy_oos_p50": 0.3006818150283862,
+    "delta_temporal_is_mean": 0.020646164811840197,
+    "delta_temporal_is_std": 0.0758141064372523,
+    "delta_temporal_oos_mean": 0.12924165913637703,
+    "delta_temporal_oos_std": 0.061936608752713215,
+    "entity_date_variance_mean": 0.07144224066956344,
+    "entity_date_variance_std": 0.016267782347766255,
+    "entity_date_variance_p50": 0.07361734283682149,
+    "entity_date_variance_p75": 0.08174109867318702,
+    "entity_date_variance_p90": 0.09145517171312514,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-11T12:48:42"
+  }
+}

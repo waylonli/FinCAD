@@ -34,7 +34,7 @@ from cad import CADConfig, ContextAwareDecoder
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Quick CAD prompt runner.")
     parser.add_argument("--model-name", type=str, required=True, help="HuggingFace model id")
-    parser.add_argument("--model-cache-dir", type=str, default="../pretrained_models", help="Cache dir for model weights")
+    parser.add_argument("--model-cache-dir", type=str, default=None, help="Optional cache dir for model weights")
     parser.add_argument("--use-chat-template", action="store_true", help="Apply the model's chat template to prompts")
     parser.add_argument("--context", type=str, required=True, help="Context string to condition on")
     parser.add_argument("--question", type=str, required=True, help="Question or instruction")

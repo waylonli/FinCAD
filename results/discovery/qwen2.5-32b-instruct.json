@@ -1,0 +1,33 @@
+{
+  "instruction": "Given a task instruction about a financial entity, recall relevant information from your training data and predict a one-word outcome.",
+  "model_name": "Qwen/Qwen2.5-32B-Instruct",
+  "score": 0.5,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "gap_p95": 0.636939858478265,
+    "gap_mean": 0.2496333291843402,
+    "gap_std": 0.18513288602905476,
+    "entropy_in_sample_mean": 0.9204856727785008,
+    "entropy_in_sample_std": 0.1044644547082011,
+    "entropy_in_sample_p25": 0.8974802526202218,
+    "entropy_in_sample_p50": 0.956286539380729,
+    "entropy_oos_mean": 0.967903450232956,
+    "entropy_oos_std": 0.03388376228442037,
+    "entropy_oos_p05": 0.9052723567690952,
+    "entropy_oos_p50": 0.9750790425362087,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-03T10:12:06"
+  }
+}

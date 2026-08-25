@@ -1,0 +1,40 @@
+{
+  "instruction": "For a given financial task, provide the most likely one-word outcome by accessing your memory and using relevant training data.",
+  "model_name": "upstage/SOLAR-10.7B-Instruct-v1.0",
+  "score": 0.575,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.7106755319961041,
+    "entropy_in_sample_std": 0.1175330890481543,
+    "entropy_in_sample_p25": 0.6249092613670376,
+    "entropy_in_sample_p50": 0.7054972350223497,
+    "entropy_oos_mean": 0.4672659335172739,
+    "entropy_oos_std": 0.11054894937298004,
+    "entropy_oos_p05": 0.3413073484819856,
+    "entropy_oos_p50": 0.436780142642339,
+    "delta_temporal_is_mean": 0.01959037978678503,
+    "delta_temporal_is_std": 0.10345047968610241,
+    "delta_temporal_oos_mean": 0.2501884142361969,
+    "delta_temporal_oos_std": 0.11585031500554456,
+    "entity_date_variance_mean": 0.09401913990137743,
+    "entity_date_variance_std": 0.025489387154416676,
+    "entity_date_variance_p50": 0.10269339049427417,
+    "entity_date_variance_p75": 0.10467907674754004,
+    "entity_date_variance_p90": 0.11331245269787517,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-14T10:40:54"
+  }
+}

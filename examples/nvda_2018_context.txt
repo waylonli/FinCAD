@@ -1,0 +1,4 @@
+As of June 2018, NVIDIA's gaming revenue outlook was exposed to a sharp
+decline in cryptocurrency-mining demand. Excess GPU inventory, weaker demand,
+and increasing competition created meaningful downside risk. Use only this
+historically available context when making the forecast.

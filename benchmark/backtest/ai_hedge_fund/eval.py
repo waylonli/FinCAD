@@ -52,11 +52,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Model
     g = p.add_argument_group("Model")
     g.add_argument("--model-name", required=True, help="HF model id or local path")
-    g.add_argument("--model-cache-dir", default="../pretrained_models")
+    g.add_argument("--model-cache-dir", default=None)
     g.add_argument("--use-chat-template", action="store_true")
     g.add_argument("--attn-implementation", default=None)
-    g.add_argument("--peft-adapter", default=None,
-                   help="Path to PEFT/LoRA adapter directory (base model resolved from adapter_config.json)")
 
     # Decoding
     g = p.add_argument_group("Decoding")
@@ -95,7 +93,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     g = p.add_argument_group("Data")
     g.add_argument("--price-csv", default=None,
                    help="Path to local price CSV (with date, symbol, adjusted_close). "
-                   "If omitted, tries abrdn-risk-factor-eval/data/price/price_data.csv")
+                   "If omitted, uses dataset/backtest-data/price/price_data.csv")
 
     # Anonymisation (Experiment 3)
     g = p.add_argument_group("Anonymisation")
@@ -571,12 +569,15 @@ def main(argv=None) -> None:
     # ---- Load price data ----
     price_path = args.price_csv
     if price_path is None:
-        # Try abrdn data
-        candidate = REPO_ROOT / "abrdn-risk-factor-eval" / "data" / "price" / "price_data.csv"
+        candidate = PROJECT_ROOT / "dataset" / "backtest-data" / "price" / "price_data.csv"
         if candidate.exists():
             price_path = str(candidate)
         else:
-            print("ERROR: No --price-csv provided and default abrdn price data not found.", file=sys.stderr)
+            print(
+                "ERROR: No --price-csv provided and the default prepared price data "
+                "was not found at dataset/backtest-data/price/price_data.csv.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     logger.info("Loading prices from %s for %s", price_path, args.ticker)
@@ -603,7 +604,6 @@ def main(argv=None) -> None:
             use_chat_template=args.use_chat_template,
             cache_dir=args.model_cache_dir,
             attn_implementation=args.attn_implementation,
-            peft_adapter=getattr(args, 'peft_adapter', None),
         )
     )
 

@@ -19,7 +19,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 from cad import CADConfig, ContextAwareDecoder
-from adapters import AdapterInitConfig, TransformersAdapter
+from adapters import AdapterInitConfig, TransformersAdapter, seed_everything
 
 
 def format_prompt(question: str) -> str:
@@ -126,6 +126,7 @@ def evaluate_split(
             temperature,
             cad_config,
             cad_prior_mode,
+            neg_prompt_builder=neg_prompt_builder,
         )
         if isinstance(generations, str):
             generations = [generations]
@@ -189,13 +190,14 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description="Evaluate competition math baseline vs CAD decoding.")
     parser.add_argument("--model-name", type=str, required=True, help="HuggingFace model id")
-    parser.add_argument("--model-cache-dir", type=str, default="../pretrained_models", help="Cache dir for model weights")
+    parser.add_argument("--model-cache-dir", type=str, default=None, help="Optional cache dir for model weights")
     parser.add_argument("--use-chat-template", action="store_true", help="Apply the model's chat template to prompts")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit number of samples (None for full)")
     parser.add_argument("--dataset-cache-dir", type=str, default=str(default_ds_cache), help="Cache dir for dataset")
     parser.add_argument("--max-new-tokens", type=int, default=256, help="Generation budget")
     parser.add_argument("--split", type=str, default="test", help="Dataset split to evaluate")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0 = greedy)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
     parser.add_argument("--results-file", type=str, default=None, help="Optional JSONL path for per-item generations")
     parser.add_argument("--decoding-mode", type=str, default="baseline", choices=["baseline", "cad"], help="Decoding mode")
@@ -210,6 +212,7 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
+    seed_everything(args.seed)
     print(f"[Config] {args}")
 
     adapter = TransformersAdapter(

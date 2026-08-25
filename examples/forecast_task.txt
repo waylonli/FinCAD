@@ -1,0 +1,2 @@
+Predict whether the stock is more likely to go up or down over the following
+quarter. End with exactly one label: up or down.

@@ -48,7 +48,7 @@ class OptimizedInstruction:
 
     instruction: str
     model_name: str
-    score: float
+    score: Optional[float]
     metadata: Dict[str, Any] = field(default_factory=dict)
     logit_gap_profile: Optional[Dict[str, Any]] = field(default=None)
 

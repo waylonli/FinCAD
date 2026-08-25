@@ -1,0 +1,40 @@
+{
+  "instruction": "In a high stakes scenario where the Language Model must predict the outcome of a significant financial decision, the following instruction can be used to prompt the model:\n\n\"Predict the potential impact on the stock market and investment opportunities for a major corporation if it successfully acquires a rival company in a multi-billion-dollar deal, considering historical trends, market conditions, and potential regulatory challenges.",
+  "model_name": "Nexusflow/Starling-LM-7B-beta",
+  "score": 0.5,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.22066847470926207,
+    "entropy_in_sample_std": 0.05670100441068159,
+    "entropy_in_sample_p25": 0.17369415674695482,
+    "entropy_in_sample_p50": 0.2096392816999251,
+    "entropy_oos_mean": 0.1395455580120478,
+    "entropy_oos_std": 0.042256634969431446,
+    "entropy_oos_p05": 0.08705184373148245,
+    "entropy_oos_p50": 0.12374924389742942,
+    "delta_temporal_is_mean": -0.004799417438235118,
+    "delta_temporal_is_std": 0.030928787815314336,
+    "delta_temporal_oos_mean": 0.084731334726046,
+    "delta_temporal_oos_std": 0.0469018712982712,
+    "entity_date_variance_mean": 0.027753136497671742,
+    "entity_date_variance_std": 0.007235001747964106,
+    "entity_date_variance_p50": 0.027348893520940266,
+    "entity_date_variance_p75": 0.031975849147185875,
+    "entity_date_variance_p90": 0.035567283653651825,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-13T21:00:50"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "instruction": "Recall what you know from your training data about this\nfinancial entity and predict the outcome.",
+  "model_name": "01-ai/Yi-1.5-9B-Chat",
+  "score": 0.5,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.9420688005791018,
+    "entropy_in_sample_std": 0.04341191027813544,
+    "entropy_in_sample_p25": 0.932852222435484,
+    "entropy_in_sample_p50": 0.956286539380729,
+    "entropy_oos_mean": 0.9499670148234034,
+    "entropy_oos_std": 0.04243176654677861,
+    "entropy_oos_p05": 0.8399415379831692,
+    "entropy_oos_p50": 0.956286539380729,
+    "delta_temporal_is_mean": -0.00190804700113193,
+    "delta_temporal_is_std": 0.02911566645508519,
+    "delta_temporal_oos_mean": -0.00801850121668603,
+    "delta_temporal_oos_std": 0.028369840087625914,
+    "entity_date_variance_mean": 0.02606794733968537,
+    "entity_date_variance_std": 0.007820273199658093,
+    "entity_date_variance_p50": 0.02686247423640015,
+    "entity_date_variance_p75": 0.029732107671010772,
+    "entity_date_variance_p90": 0.035711638291258056,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-13T18:10:33"
+  }
+}

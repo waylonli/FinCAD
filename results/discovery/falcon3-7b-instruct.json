@@ -1,0 +1,40 @@
+{
+  "instruction": "Recall what you know from your training data about this\nfinancial entity and predict the outcome.",
+  "model_name": "tiiuae/Falcon3-7B-Instruct",
+  "score": 0.475,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.9314742032862927,
+    "entropy_in_sample_std": 0.09235938187252356,
+    "entropy_in_sample_p25": 0.9052723567690952,
+    "entropy_in_sample_p50": 0.9662910410620369,
+    "entropy_oos_mean": 0.9691653067773404,
+    "entropy_oos_std": 0.051558076571877644,
+    "entropy_oos_p05": 0.8469291481897933,
+    "entropy_oos_p50": 0.9873456407948219,
+    "delta_temporal_is_mean": 0.008260849652799657,
+    "delta_temporal_is_std": 0.07344206375467216,
+    "delta_temporal_oos_mean": -0.028739470554543883,
+    "delta_temporal_oos_std": 0.06586023901264608,
+    "entity_date_variance_mean": 0.056221899334771994,
+    "entity_date_variance_std": 0.03828561791830555,
+    "entity_date_variance_p50": 0.04089239785763817,
+    "entity_date_variance_p75": 0.08603448563694208,
+    "entity_date_variance_p90": 0.109966053698348,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-14T09:54:57"
+  }
+}

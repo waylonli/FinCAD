@@ -1,0 +1,29 @@
+{
+  "instruction": "Recall what you know from your training data about this financial entity and predict the outcome.",
+  "model_name": "Qwen/Qwen3.5-9B",
+  "score": null,
+  "metadata": {
+    "optimizer": "seed",
+    "note": "Seed instruction \u2014 not yet optimized via MIPROv2"
+  },
+  "logit_gap_profile": {
+    "gap_p95": 0.5545997223493823,
+    "gap_mean": 0.23919831283821197,
+    "gap_std": 0.16913438966794073,
+    "entropy_in_sample_mean": 0.9287031215846554,
+    "entropy_in_sample_std": 0.08025277363972706,
+    "entropy_in_sample_p25": 0.8741039401736014,
+    "entropy_in_sample_p50": 0.9750790425362087,
+    "entropy_oos_mean": 0.9823845886280361,
+    "entropy_oos_std": 0.021404767071542843,
+    "entropy_oos_p05": 0.932852222435484,
+    "entropy_oos_p50": 0.9888163926508522,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-03-29T10:47:48"
+  }
+}

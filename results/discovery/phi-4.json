@@ -1,0 +1,40 @@
+{
+  "instruction": "Imagine a high-stakes scenario in which the rapid financial stability of a major corporation is at risk due to emerging economic volatility. Your objective is to swiftly analyze the available information and insights you possess from your training data about this financial entity. Based on this analysis, predict a critical outcome regarding the corporation's financial resilience.",
+  "model_name": "microsoft/phi-4",
+  "score": 0.675,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.9247274664584617,
+    "entropy_in_sample_std": 0.09064813159594963,
+    "entropy_in_sample_p25": 0.9052723567690952,
+    "entropy_in_sample_p50": 0.956286539380729,
+    "entropy_oos_mean": 0.9503065472280433,
+    "entropy_oos_std": 0.060031493445713284,
+    "entropy_oos_p05": 0.7650673186733778,
+    "entropy_oos_p50": 0.9750790425362087,
+    "delta_temporal_is_mean": 0.012784282124997454,
+    "delta_temporal_is_std": 0.04887195788383478,
+    "delta_temporal_oos_mean": -0.0020287400367243135,
+    "delta_temporal_oos_std": 0.04639011121596147,
+    "entity_date_variance_mean": 0.02881999546788187,
+    "entity_date_variance_std": 0.025837803962223085,
+    "entity_date_variance_p50": 0.023818988647542474,
+    "entity_date_variance_p75": 0.03223865026084031,
+    "entity_date_variance_p90": 0.047644098569082693,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-11T12:42:54"
+  }
+}

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import inspect
 
 import torch
+import numpy as np
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
@@ -114,13 +116,23 @@ class TransformersAdapter:
             return self.model(**inputs)
 
     def generate(self, inputs: Dict[str, torch.Tensor], **kwargs) -> torch.Tensor:
+        temperature = kwargs.pop("temperature", 0.0)
         gen_kwargs = dict(
             max_new_tokens=kwargs.pop("max_new_tokens", 256),
-            do_sample=kwargs.pop("do_sample", False),
-            temperature=kwargs.pop("temperature", 0.0),
+            do_sample=kwargs.pop("do_sample", temperature is not None and temperature > 0),
+            temperature=temperature,
             pad_token_id=self.eos_token_id,
         )
         gen_kwargs.update(kwargs)
 
         with torch.no_grad():
             return self.model.generate(**inputs, **gen_kwargs)
+
+
+def seed_everything(seed: int) -> None:
+    """Seed Python, NumPy, and PyTorch for repeatable evaluation runs."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)

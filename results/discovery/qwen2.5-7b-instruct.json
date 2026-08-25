@@ -1,0 +1,40 @@
+{
+  "instruction": "Given a task instruction related to a financial entity, recall what you know from your training data and predict the outcome. Your response should be a single word.",
+  "model_name": "Qwen/Qwen2.5-7B-Instruct",
+  "score": 0.475,
+  "metadata": {
+    "optimizer": "MIPROv2",
+    "num_candidates": 25,
+    "num_trials": 50,
+    "train_size": 160,
+    "val_size": 40,
+    "forward_days": 63
+  },
+  "logit_gap_profile": {
+    "entropy_in_sample_mean": 0.8844370850511467,
+    "entropy_in_sample_std": 0.04866368818518398,
+    "entropy_in_sample_p25": 0.8741039401736014,
+    "entropy_in_sample_p50": 0.9052723567690952,
+    "entropy_oos_mean": 0.9247474749550917,
+    "entropy_oos_std": 0.036482323244647855,
+    "entropy_oos_p05": 0.8399415379831692,
+    "entropy_oos_p50": 0.932852222435484,
+    "delta_temporal_is_mean": 0.006901110613917471,
+    "delta_temporal_is_std": 0.023724483262578477,
+    "delta_temporal_oos_mean": -0.029436663870099904,
+    "delta_temporal_oos_std": 0.01688727482283033,
+    "entity_date_variance_mean": 0.020684528034924893,
+    "entity_date_variance_std": 0.006008043627290646,
+    "entity_date_variance_p50": 0.020775760373841108,
+    "entity_date_variance_p75": 0.022288888936759742,
+    "entity_date_variance_p90": 0.029163697310506095,
+    "n_entities_profiled": 15,
+    "alpha_max": 12.0,
+    "alpha_min": 0.0,
+    "alpha_target": 3.0,
+    "n_probes": 460,
+    "n_in_sample": 400,
+    "n_out_of_sample": 60,
+    "profiled_at": "2026-04-13T13:10:24"
+  }
+}
