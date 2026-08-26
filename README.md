@@ -221,8 +221,8 @@ Remove `--dry-run` to execute. The main stages are:
 | `backtest-oos` | Strict 2025–2026 preservation experiment | Decisions, summaries, NAV |
 | `ranking` | Eleven-model SPY ranking alignment | Five conditions per model |
 
-After running `ranking` for all eleven model keys, reproduce the exhaustive
-`C(11,7) = 330` subset analysis:
+After running `ranking` for all eleven model keys, reproduce the descriptive
+`C(11,7) = 330` subset and leave-one-model-out alignment analyses:
 
 ```bash
 python scripts/reproduce/summarize_alignment.py
