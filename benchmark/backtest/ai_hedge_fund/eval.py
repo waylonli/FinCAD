@@ -308,9 +308,9 @@ def buy_and_hold(
     """Return daily portfolio values for a buy-and-hold strategy.
 
     Buys at the first day's **open** (via *open_series*) for a fair comparison
-    with the LLM strategy which also executes at the open.  Moomoo commission
-    is deducted on the initial purchase.  Daily values are then
-    marked-to-market using *val_series* (adjusted_close).
+    with the LLM strategy which also executes at the open.  The notional
+    transaction cost is deducted on the initial purchase.  Daily values are
+    then marked-to-market using *val_series* (adjusted_close).
 
     If *open_series* is ``None``, falls back to buying at the first day's
     adjusted_close (legacy behaviour).
