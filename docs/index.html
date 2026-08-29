@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FinCAD mitigates parametric look-ahead bias in LLM financial backtesting without retraining.">
+  <meta name="theme-color" content="#0b1020">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="FinCAD — Mitigating Look-Ahead Bias in LLM Financial Backtesting">
+  <meta property="og:description" content="EMNLP 2026 Main Conference. An inference-time method for more faithful LLM financial backtesting.">
+  <meta property="og:image" content="https://waylonli.github.io/FinCAD/assets/fincad-icon.png">
+  <meta property="og:url" content="https://waylonli.github.io/FinCAD/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://waylonli.github.io/FinCAD/">
+  <link rel="icon" type="image/png" href="assets/fincad-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>FinCAD · EMNLP 2026</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="page-glow page-glow-one" aria-hidden="true"></div>
+  <div class="page-glow page-glow-two" aria-hidden="true"></div>
+
+  <header class="site-header" id="site-header">
+    <nav class="nav shell" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="FinCAD home">
+        <img src="assets/fincad-icon.png" alt="" width="42" height="42">
+        <span>FinCAD</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">
+        <span></span><span></span><span></span>
+        <span class="sr-only">Open navigation</span>
+      </button>
+      <div class="nav-links" id="nav-links">
+        <a href="#overview">Overview</a>
+        <a href="#method">Method</a>
+        <a href="#results">Results</a>
+        <a href="#quickstart">Quick start</a>
+        <a class="nav-code" href="https://github.com/waylonli/FinCAD" target="_blank" rel="noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.6v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.8.1-.8.1-.8 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.9 1.4 3.6 1.1.1-.8.4-1.4.8-1.7-2.7-.3-5.5-1.4-5.5-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.5.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.1v3.1c0 .4.2.7.8.6A11.5 11.5 0 0 0 12 .7Z"/></svg>
+          Code
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" id="top">
+      <div class="hero-copy">
+        <div class="venue-pill"><span></span> EMNLP 2026 · Main Conference</div>
+        <p class="eyebrow">Inference-time bias mitigation for financial LLMs</p>
+        <h1>Summoning the Oracle<br><em>to Slay It.</em></h1>
+        <p class="paper-subtitle">Mitigating Look-Ahead Bias in Financial Backtesting with Large Language Models</p>
+
+        <div class="authors" aria-label="Paper authors">
+          <span>Weixian Waylon Li</span><i>·</i><span>Mengyu Wang</span><i>·</i><span>Tiejun Ma</span>
+        </div>
+        <p class="affiliation">University of Edinburgh</p>
+
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://arxiv.org/pdf/2605.24564" target="_blank" rel="noreferrer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.5h8l4 4V21H6V2.5Zm8 1.8V7h2.7L14 4.3ZM8.5 11v1.5h7V11h-7Zm0 3.5V16h7v-1.5h-7Z"/></svg>
+            Paper
+          </a>
+          <a class="button button-secondary" href="https://arxiv.org/abs/2605.24564" target="_blank" rel="noreferrer">arXiv</a>
+          <a class="button button-secondary" href="https://github.com/waylonli/FinCAD" target="_blank" rel="noreferrer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.6v-2.2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.8.1-.8.1-.8 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.9 1.4 3.6 1.1.1-.8.4-1.4.8-1.7-2.7-.3-5.5-1.4-5.5-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.5.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.1v3.1c0 .4.2.7.8.6A11.5 11.5 0 0 0 12 .7Z"/></svg>
+            GitHub
+          </a>
+        </div>
+
+        <div class="hero-facts" aria-label="Key properties">
+          <span>No retraining</span><span>Model-specific discovery</span><span>Entity/date adaptive</span>
+        </div>
+      </div>
+
+      <div class="hero-art" aria-label="FinCAD method emblem">
+        <div class="orbital orbital-outer" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="orbital orbital-inner" aria-hidden="true"><span></span><span></span></div>
+        <div class="icon-halo"></div>
+        <img src="assets/fincad-icon.png" alt="FinCAD wizard, oracle and sword emblem" width="520" height="520">
+        <div class="art-note note-one"><b>01</b><span>Summon<br>parametric recall</span></div>
+        <div class="art-note note-two"><b>02</b><span>Measure<br>memorisation</span></div>
+        <div class="art-note note-three"><b>03</b><span>Suppress<br>biased logits</span></div>
+      </div>
+    </section>
+
+    <section class="paper-strip" aria-label="Release news">
+      <div class="shell strip-content">
+        <span class="strip-label">News</span>
+        <p><strong>Accepted to EMNLP 2026 Main Conference.</strong> Code, discovery profiles and reproducibility tools are public.</p>
+        <a href="https://github.com/waylonli/FinCAD" target="_blank" rel="noreferrer">Explore the release <span>→</span></a>
+      </div>
+    </section>
+
+    <section class="section shell reveal" id="overview">
+      <div class="section-heading split-heading">
+        <div>
+          <p class="eyebrow">The problem</p>
+          <h2>A backtest can look forward<br>without seeing future data.</h2>
+        </div>
+        <p>Historical context may be clean while the model itself already remembers what happened next. FinCAD targets this <strong>parametric look-ahead bias</strong> at inference time.</p>
+      </div>
+
+      <div class="abstract-card">
+        <div class="abstract-index">Abstract</div>
+        <p>Backtesting LLMs on historical financial data is unreliable when pre-training postdates the evaluated events. FinCAD learns a model-specific prior prompt that activates memorised outcomes, estimates whether that memory is present for each entity and date, and subtracts the prior from context-conditioned logits. The result is a targeted correction that requires no model retraining and is designed to decay when date-specific memorisation is absent.</p>
+        <a href="https://arxiv.org/abs/2605.24564" target="_blank" rel="noreferrer">Read the full abstract <span>↗</span></a>
+      </div>
+    </section>
+
+    <section class="section method-section" id="method">
+      <div class="shell reveal">
+        <div class="section-heading centered-heading">
+          <p class="eyebrow">The method</p>
+          <h2>Discover. Calibrate. Decode.</h2>
+          <p>FinCAD separates useful historical context from a model's recalled future outcomes through three linked stages.</p>
+        </div>
+
+        <div class="stage-grid">
+          <article class="stage-card stage-blue">
+            <span class="stage-number">01</span>
+            <div class="stage-symbol">T<sup>*</sup></div>
+            <h3>Adversarial bias discovery</h3>
+            <p>Optimise a task-agnostic instruction that reliably elicits each model's parametric memory.</p>
+          </article>
+          <article class="stage-card stage-green">
+            <span class="stage-number">02</span>
+            <div class="stage-symbol">α(s,t)</div>
+            <h3>Adaptive calibration</h3>
+            <p>Use entropy and date variance to estimate memorisation for a specific entity and decision date.</p>
+          </article>
+          <article class="stage-card stage-purple">
+            <span class="stage-number">03</span>
+            <div class="stage-symbol">Ṽ(y)</div>
+            <h3>Context-aware decoding</h3>
+            <p>Downweight memory-heavy tokens while retaining evidence from information available at the backtest date.</p>
+          </article>
+        </div>
+
+        <div class="method-demo is-running" id="method-demo">
+          <div class="demo-header">
+            <div>
+              <span class="live-dot"></span>
+              <b>Animated method trace</b>
+              <small>Illustrative next-token scores</small>
+            </div>
+            <button type="button" class="replay-button" id="replay-demo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.7 6.3A9 9 0 1 0 21 12h-2a7 7 0 1 1-2-4.9L14 10h7V3l-2.3 3.3Z"/></svg>
+              Replay
+            </button>
+          </div>
+
+          <div class="demo-canvas" aria-live="polite">
+            <div class="demo-input context-input">
+              <span class="demo-kicker">Historical context</span>
+              <b>Evidence available at <i>t</i></b>
+              <p>Prices, fundamentals and signals through 2018-06-29</p>
+              <div class="mini-spark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+
+            <div class="flow-line context-flow" aria-hidden="true"><span></span></div>
+
+            <div class="demo-input prior-input">
+              <span class="demo-kicker">Oracle prior · T<sup>*</sup></span>
+              <b>Model's recalled outcome</b>
+              <p>“What I remember about this entity after date <i>t</i>…”</p>
+              <div class="memory-pulse" aria-hidden="true"><span></span><span></span><span></span></div>
+            </div>
+
+            <div class="flow-line prior-flow" aria-hidden="true"><span></span></div>
+
+            <div class="mix-node">
+              <span class="alpha-label">Adaptive penalty</span>
+              <b>α(s,t)</b>
+              <div class="alpha-meter"><i></i></div>
+              <small>fires only when memory is detected</small>
+            </div>
+
+            <div class="flow-line output-flow" aria-hidden="true"><span></span></div>
+
+            <div class="score-panel">
+              <div class="score-title"><span>Adjusted logits</span><b>FinCAD decode</b></div>
+              <div class="score-row score-up">
+                <span>UP</span><div class="score-track"><i class="score-before"></i><i class="score-after"></i></div><small>memory-heavy</small>
+              </div>
+              <div class="score-row score-down">
+                <span>DOWN</span><div class="score-track"><i class="score-before"></i><i class="score-after"></i></div><small>context-supported</small>
+              </div>
+              <div class="score-row score-hold">
+                <span>HOLD</span><div class="score-track"><i class="score-before"></i><i class="score-after"></i></div><small>context-supported</small>
+              </div>
+              <div class="score-legend"><span><i></i>Before</span><span><i></i>After FinCAD</span></div>
+            </div>
+          </div>
+
+          <div class="equation-row">
+            <span>At each decoding step</span>
+            <code>Ṽ(y) = (1 + α) V(y | x<sub>ctx</sub>) − α V(y | x<sub>prior</sub>)</code>
+            <strong>No weight updates</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell pipeline-section reveal">
+      <div class="section-heading compact-heading">
+        <div>
+          <p class="eyebrow">System overview</p>
+          <h2>The complete FinCAD pipeline</h2>
+        </div>
+        <a href="assets/fincad-pipeline.png" target="_blank">Open full resolution <span>↗</span></a>
+      </div>
+      <figure class="pipeline-figure">
+        <img src="assets/fincad-pipeline.png" alt="FinCAD pipeline: adversarial bias discovery, entity-adaptive penalty and context-aware decoding" width="2400" height="1428" loading="lazy">
+        <figcaption>FinCAD first discovers a reusable memory activator, then calibrates the penalty per entity and date before correcting token logits during generation.</figcaption>
+      </figure>
+    </section>
+
+    <section class="section results-section" id="results">
+      <div class="shell reveal">
+        <div class="section-heading centered-heading light-heading">
+          <p class="eyebrow">Empirical evidence</p>
+          <h2>Bias mitigation without indiscriminate suppression.</h2>
+          <p>The experiments separate memorised in-sample dates from strict post-cutoff evaluation and test whether model rankings become more predictive.</p>
+        </div>
+
+        <div class="result-grid">
+          <article>
+            <span class="result-label">Reasoning preservation</span>
+            <strong>≤ 1.7<small> pts</small></strong>
+            <p>Mean accuracy change for four of the five core models across general benchmarks.</p>
+          </article>
+          <article class="result-featured">
+            <span class="result-label">Ranking alignment</span>
+            <strong>.779 <i>→</i> .846</strong>
+            <p>Mean seven-model-subset Spearman correlation between in-sample and out-of-sample Sharpe rankings.</p>
+          </article>
+          <article>
+            <span class="result-label">Model coverage</span>
+            <strong>11<small> LLMs</small></strong>
+            <p>A cross-family leaderboard audit, with five models evaluated in the full benchmark sweep.</p>
+          </article>
+        </div>
+
+        <div class="result-note">
+          <span>Interpretation</span>
+          <p>FinCAD is a mitigation—not a guarantee that all training-data leakage has been removed. Its correction is intended to be strongest where the calibration probe detects date-specific memory.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell quickstart-section reveal" id="quickstart">
+      <div class="quickstart-copy">
+        <p class="eyebrow">Open-source release</p>
+        <h2>Try FinCAD in five minutes.</h2>
+        <p>Pre-computed discovery profiles let you apply FinCAD directly. The public CLI handles the context branch, oracle prior and adjusted decoding.</p>
+        <ul>
+          <li><span>✓</span> Reusable discovery JSONs</li>
+          <li><span>✓</span> CLI and Python API</li>
+          <li><span>✓</span> Paper reproduction runners</li>
+        </ul>
+        <a class="text-link" href="https://github.com/waylonli/FinCAD#five-minute-quick-start" target="_blank" rel="noreferrer">Read the full documentation <span>→</span></a>
+      </div>
+
+      <div class="terminal-card">
+        <div class="terminal-top">
+          <div><i></i><i></i><i></i></div>
+          <span>FinCAD · quick start</span>
+          <button type="button" class="copy-command" data-copy-target="quickstart-code">Copy</button>
+        </div>
+        <pre id="quickstart-code"><code><span class="terminal-comment"># Install the research release</span>
+git clone https://github.com/waylonli/FinCAD.git
+cd FinCAD
+pip install -e .
+
+<span class="terminal-comment"># Run with a released discovery profile</span>
+fincad \
+  --model-name Qwen/Qwen2.5-7B-Instruct \
+  --discovery-file \
+    results/discovery/qwen2.5-7b-instruct.json \
+  --context-file examples/nvda_2018_context.txt \
+  --task-file examples/forecast_task.txt \
+  --entity NVDA --date 2018-06-29 \
+  --alpha 1.0 --max-new-tokens 64</code></pre>
+      </div>
+    </section>
+
+    <section class="section citation-section" id="citation">
+      <div class="shell reveal">
+        <div class="section-heading compact-heading light-heading">
+          <div>
+            <p class="eyebrow">Citation</p>
+            <h2>Build on FinCAD.</h2>
+          </div>
+          <p>If this work supports your research, please cite the paper and link to the public implementation.</p>
+        </div>
+        <div class="citation-card">
+          <pre id="bibtex"><code>@misc{li2026summoningoracleslayit,
+  title   = {Summoning the Oracle to Slay It: Mitigating
+             Look-Ahead Bias in Financial Backtesting with
+             Large Language Models},
+  author  = {Li, Weixian Waylon and Wang, Mengyu and Ma, Tiejun},
+  year    = {2026},
+  eprint  = {2605.24564},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}</code></pre>
+          <button type="button" class="copy-bib" data-copy-target="bibtex">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h11a2 2 0 0 1 2 2v11h-2V4H8V2ZM5 6h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Zm0 2v12h10V8H5Z"/></svg>
+            Copy BibTeX
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div class="footer-brand">
+        <img src="assets/fincad-icon.png" alt="" width="58" height="58">
+        <div><b>FinCAD</b><span>Faithful backtesting for financial LLMs.</span></div>
+      </div>
+      <div class="footer-links">
+        <a href="https://arxiv.org/abs/2605.24564" target="_blank" rel="noreferrer">Paper</a>
+        <a href="https://github.com/waylonli/FinCAD" target="_blank" rel="noreferrer">Code</a>
+        <a href="https://github.com/waylonli/FinCAD/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT License</a>
+      </div>
+      <p>Research from the University of Edinburgh · <span id="footer-year">2026</span></p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

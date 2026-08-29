@@ -1,0 +1,49 @@
+name: Deploy FinCAD project page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "assets/fincad-icon.png"
+      - "assets/fincad-pipeline.png"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Assemble static site
+        run: |
+          mkdir -p _site/assets
+          cp docs/index.html docs/styles.css docs/script.js docs/.nojekyll _site/
+          cp assets/fincad-icon.png assets/fincad-pipeline.png _site/assets/
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
