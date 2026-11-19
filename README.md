@@ -282,14 +282,24 @@ assets/                      Web-ready FinCAD icon and method figure
 ## Citation
 
 ```bibtex
-@misc{li2026summoningoracleslayit,
-      title={Summoning the Oracle to Slay It: Mitigating Look-Ahead Bias in Financial Backtesting with Large Language Models},
-      author={Weixian Waylon Li and Mengyu Wang and Tiejun Ma},
-      year={2026},
-      eprint={2605.24564},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2605.24564},
+@inproceedings{li-etal-2026-summoning,
+    title = "Summoning the Oracle to Slay It: Mitigating Look-Ahead Bias in Financial Backtesting with Large Language Models",
+    author = "Li, Weixian Waylon  and
+      Wang, Mengyu  and
+      Ma, Tiejun",
+    editor = "Lee, Hung-Yi  and
+      Dev, Sunipa  and
+      Li, Junyi Jessy  and
+      Elliott, Desmond",
+    booktitle = "Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing",
+    month = oct,
+    year = "2026",
+    address = "Budapest, Hungary",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2026.emnlp-main.510/",
+    doi = "10.18653/2026.emnlp-main.510",
+    pages = "11694--11713",
+    ISBN = "979-8-89176-459-0"
 }
 ```
 
